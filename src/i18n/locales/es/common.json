@@ -1,0 +1,38 @@
+{
+  "app_name": "Turnoalcorte",
+  "loading": "Cargando...",
+  "save": "Guardar",
+  "cancel": "Cancelar",
+  "delete": "Eliminar",
+  "edit": "Editar",
+  "add": "Agregar",
+  "confirm": "Confirmar",
+  "back": "Volver",
+  "next": "Siguiente",
+  "close": "Cerrar",
+  "search": "Buscar",
+  "no_results": "Sin resultados",
+  "error_generic": "Algo salió mal",
+  "retry": "Reintentar",
+  "today": "Hoy",
+  "collapse": "Colapsar",
+  "nav": {
+    "today": "Hoy",
+    "calendar": "Calendario",
+    "clients": "Clientes",
+    "services": "Servicios",
+    "barbers": "Barberos",
+    "analytics": "Análisis",
+    "settings": "Configuración"
+  },
+  "status": {
+    "confirmed": "Confirmado",
+    "pending": "Pendiente",
+    "cancelled": "Cancelado",
+    "no_show": "No vino",
+    "checked_in": "Llegó",
+    "in_progress": "En curso",
+    "rescheduled": "Reprogramado",
+    "completed": "Completado"
+  }
+}

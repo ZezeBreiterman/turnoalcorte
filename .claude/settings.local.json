@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude mcp *)",
+      "Bash(npx skills *)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(not exist *)",
+      "Bash(npx vitest *)",
+      "PowerShell($content = Get-Content \"E:\\\\ClaudioFolder\\\\Turnoalcorte\\\\.env\" -Raw; Write-Host \"=== RAW .env ===\" ; Write-Host $content.Length \"chars total\"; foreach \\($line in $content -split \"`n\"\\) { $key = \\($line -split \"=\"\\)[0]; $val = \\($line -split \"=\",2\\)[1]; Write-Host \"KEY: '$key' | VALUE starts with: '$\\($val.Substring\\(0, [Math]::Min\\(20, $val.Length\\)\\)\\)...' | Length: $\\($val.Length\\)\" })",
+      "Bash(node -e \"const p = require\\('./package.json'\\); const deps = {...p.dependencies, ...p.devDependencies}; ['@dnd-kit/core','@dnd-kit/utilities','@dnd-kit/sortable','zustand','sonner','cmdk'].forEach\\(k => console.log\\(k, deps[k] ?? 'MISSING'\\)\\)\")",
+      "Bash(node -e \"const p = require\\('./package.json'\\); console.log\\('playwright:', p.devDependencies?.['@playwright/test'] ?? 'MISSING'\\); console.log\\('sentry:', p.dependencies?.['@sentry/react'] ?? 'MISSING'\\); console.log\\('test script:', p.scripts?.test ?? 'none'\\)\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('playwright:', p.devDependencies['@playwright/test']\\); console.log\\('sentry:', p.dependencies['@sentry/react']\\)\")",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "mcp__Claude_Preview__preview_start",
+      "mcp__Windows-MCP__Screenshot",
+      "mcp__Windows-MCP__Snapshot",
+      "mcp__Windows-MCP__Click",
+      "Bash(xargs grep -l \"appointment\" -i)",
+      "Bash(node -e \"const p = require\\('./package.json'\\); const deps = {...p.dependencies,...p.devDependencies}; ['react-hook-form','@hookform/resolvers','zod','date-fns','framer-motion'].forEach\\(d => console.log\\(d, deps[d] ?? 'MISSING'\\)\\)\")"
+    ]
+  }
+}

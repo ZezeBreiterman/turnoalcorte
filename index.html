@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Turnoalcorte</title>
+    <!-- FOUC prevention: runs synchronously before any CSS/JS, sets theme + density on <html> -->
+    <script>
+      (function () {
+        var stored = localStorage.getItem('turnoalcorte-ui');
+        var theme = 'light';
+        var density = 'cozy';
+        if (stored) {
+          try {
+            var parsed = JSON.parse(stored);
+            if (parsed.state) {
+              if (parsed.state.theme === 'dark') theme = 'dark';
+              else if (parsed.state.theme === 'system') {
+                theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+              }
+              if (parsed.state.density) density = parsed.state.density;
+            }
+          } catch (e) {}
+        }
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.setAttribute('data-density', density);
+        if (theme === 'dark') document.documentElement.classList.add('dark');
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

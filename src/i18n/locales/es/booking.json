@@ -1,0 +1,17 @@
+{
+  "step_service": "Elegí un servicio",
+  "step_barber": "Elegí un barbero",
+  "step_slot": "Elegí un horario",
+  "step_confirm": "Confirmá tu turno",
+  "step_done": "¡Todo listo!",
+  "your_name": "Tu nombre",
+  "your_phone": "Teléfono",
+  "your_email": "Email (opcional)",
+  "book_now": "Reservar turno",
+  "booking_code": "Código de turno",
+  "booking_summary": "Resumen del turno",
+  "slot_held": "Lugar reservado por {{seconds}}s",
+  "slot_expired": "Este horario ya no está disponible",
+  "no_slots": "Sin disponibilidad para este día",
+  "any_barber": "Cualquier barbero"
+}

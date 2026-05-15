@@ -1,0 +1,17 @@
+{
+  "step_service": "Choose a service",
+  "step_barber": "Choose a barber",
+  "step_slot": "Pick a time",
+  "step_confirm": "Confirm booking",
+  "step_done": "You're all set!",
+  "your_name": "Your name",
+  "your_phone": "Phone number",
+  "your_email": "Email (optional)",
+  "book_now": "Book now",
+  "booking_code": "Booking code",
+  "booking_summary": "Booking summary",
+  "slot_held": "Slot held for {{seconds}}s",
+  "slot_expired": "This slot is no longer available",
+  "no_slots": "No availability for this day",
+  "any_barber": "Any barber"
+}

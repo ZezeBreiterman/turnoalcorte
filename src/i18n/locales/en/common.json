@@ -1,0 +1,38 @@
+{
+  "app_name": "Turnoalcorte",
+  "loading": "Loading...",
+  "save": "Save",
+  "cancel": "Cancel",
+  "delete": "Delete",
+  "edit": "Edit",
+  "add": "Add",
+  "confirm": "Confirm",
+  "back": "Back",
+  "next": "Next",
+  "close": "Close",
+  "search": "Search",
+  "no_results": "No results found",
+  "error_generic": "Something went wrong",
+  "retry": "Retry",
+  "today": "Today",
+  "collapse": "Collapse",
+  "nav": {
+    "today": "Today",
+    "calendar": "Calendar",
+    "clients": "Clients",
+    "services": "Services",
+    "barbers": "Barbers",
+    "analytics": "Analytics",
+    "settings": "Settings"
+  },
+  "status": {
+    "confirmed": "Confirmed",
+    "pending": "Pending",
+    "cancelled": "Cancelled",
+    "no_show": "No show",
+    "checked_in": "Checked in",
+    "in_progress": "In progress",
+    "rescheduled": "Rescheduled",
+    "completed": "Completed"
+  }
+}

@@ -1,0 +1,112 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "./styles/tokens.css";
+
+/* ── Tailwind v4: class-based dark mode ── */
+@variant dark (&:where(.dark, .dark *));
+
+/* ── Custom Tailwind utilities that map to our semantic tokens ── */
+@utility bg-background {
+  background-color: var(--color-bg);
+}
+@utility bg-muted {
+  background-color: var(--color-bg-muted);
+}
+@utility bg-subtle {
+  background-color: var(--color-bg-subtle);
+}
+@utility text-foreground {
+  color: var(--color-fg);
+}
+@utility text-muted-foreground {
+  color: var(--color-fg-muted);
+}
+@utility text-subtle {
+  color: var(--color-fg-subtle);
+}
+@utility border-border {
+  border-color: var(--color-border);
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    border-color: var(--color-border);
+  }
+
+  html {
+    font-family: var(--font-sans);
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+    line-height: 1.5;
+    min-height: 100dvh;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  /* ── Focus ring ── */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* ── Selection ── */
+  ::selection {
+    background-color: oklch(0.68 0.16 35 / 0.2);
+    color: var(--color-fg);
+  }
+
+  /* ── Scrollbar (webkit) ── */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border-strong);
+    border-radius: var(--radius-full);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-fg-subtle);
+  }
+
+  /* ── Typography ── */
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--color-fg);
+  }
+
+  code, kbd, pre, samp {
+    font-family: var(--font-mono);
+    font-feature-settings: var(--font-feature-settings-tabular);
+  }
+
+  /* ── Animations ── */
+  @keyframes shimmer {
+    100% { transform: translateX(200%); }
+  }
+
+  /* ── Reduced motion ── */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

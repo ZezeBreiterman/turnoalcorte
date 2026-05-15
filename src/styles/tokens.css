@@ -1,0 +1,133 @@
+/* ─── Turnoalcorte Design Tokens ──────────────────────────────────────────────
+   Single source of truth for all visual decisions.
+   Components consume ONLY semantic tokens (--color-bg, --color-fg, etc.)
+   Never consume primitive tokens (--color-neutral-950) directly in components.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+@layer base {
+  :root,
+  [data-theme="light"] {
+    /* ── Primitives (do not use in components) ── */
+    --primitive-neutral-0:   oklch(0.99 0.005 240);
+    --primitive-neutral-50:  oklch(0.97 0.006 240);
+    --primitive-neutral-100: oklch(0.94 0.008 240);
+    --primitive-neutral-200: oklch(0.88 0.010 240);
+    --primitive-neutral-300: oklch(0.78 0.012 240);
+    --primitive-neutral-400: oklch(0.62 0.014 240);
+    --primitive-neutral-500: oklch(0.50 0.015 240);
+    --primitive-neutral-600: oklch(0.40 0.014 240);
+    --primitive-neutral-700: oklch(0.30 0.012 240);
+    --primitive-neutral-800: oklch(0.20 0.010 240);
+    --primitive-neutral-900: oklch(0.14 0.008 240);
+    --primitive-neutral-950: oklch(0.10 0.006 240);
+
+    --primitive-accent:        oklch(0.68 0.16 35);   /* terracotta */
+    --primitive-accent-dark:   oklch(0.55 0.16 35);
+    --primitive-accent-light:  oklch(0.82 0.10 35);
+    --primitive-signal:        oklch(0.60 0.10 240);  /* slate-blue */
+    --primitive-success:       oklch(0.65 0.15 155);
+    --primitive-warning:       oklch(0.78 0.14 75);
+    --primitive-danger:        oklch(0.60 0.18 22);
+
+    /* ── Semantic tokens (USE THESE in components) ── */
+    --color-bg:               var(--primitive-neutral-0);
+    --color-bg-muted:         var(--primitive-neutral-50);
+    --color-bg-subtle:        var(--primitive-neutral-100);
+    --color-bg-inverse:       var(--primitive-neutral-950);
+
+    --color-fg:               var(--primitive-neutral-950);
+    --color-fg-muted:         var(--primitive-neutral-500);
+    --color-fg-subtle:        var(--primitive-neutral-400);
+    --color-fg-inverse:       var(--primitive-neutral-0);
+    --color-fg-placeholder:   var(--primitive-neutral-300);
+
+    --color-border:           var(--primitive-neutral-200);
+    --color-border-strong:    var(--primitive-neutral-300);
+
+    --color-primary:          var(--primitive-accent);
+    --color-primary-hover:    var(--primitive-accent-dark);
+    --color-primary-fg:       var(--primitive-neutral-0);
+
+    --color-success:          var(--primitive-success);
+    --color-success-bg:       oklch(0.94 0.05 155);
+    --color-success-fg:       oklch(0.35 0.10 155);
+
+    --color-warning:          var(--primitive-warning);
+    --color-warning-bg:       oklch(0.96 0.05 75);
+    --color-warning-fg:       oklch(0.40 0.12 75);
+
+    --color-danger:           var(--primitive-danger);
+    --color-danger-bg:        oklch(0.95 0.05 22);
+    --color-danger-fg:        oklch(0.40 0.12 22);
+
+    /* ── Sidebar (always dark) ── */
+    --color-sidebar-bg:       oklch(0.12 0.012 240);
+    --color-sidebar-fg:       oklch(0.88 0.008 240);
+    --color-sidebar-fg-muted: oklch(0.55 0.010 240);
+    --color-sidebar-border:   oklch(0.20 0.008 240);
+    --color-sidebar-hover:    oklch(0.20 0.008 240);
+    --color-sidebar-active:   oklch(0.24 0.010 240);
+
+    /* ── Typography ── */
+    --font-sans: 'InterVariable', 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
+    --font-feature-settings-tabular: "tnum";
+
+    /* ── Density: cozy (default) ── */
+    --density-row-height:     3.5rem;
+    --density-spacing-sm:     0.5rem;
+    --density-spacing-md:     1rem;
+    --density-spacing-lg:     1.5rem;
+
+    /* ── Radius ── */
+    --radius-sm:  0.25rem;
+    --radius-md:  0.375rem;
+    --radius-lg:  0.5rem;
+    --radius-xl:  0.75rem;
+    --radius-2xl: 1rem;
+    --radius-full: 9999px;
+
+    /* ── Shadows ── */
+    --shadow-sm:  0 1px 2px 0 oklch(0 0 0 / 0.05);
+    --shadow-md:  0 4px 6px -1px oklch(0 0 0 / 0.07), 0 2px 4px -2px oklch(0 0 0 / 0.05);
+    --shadow-lg:  0 10px 15px -3px oklch(0 0 0 / 0.08), 0 4px 6px -4px oklch(0 0 0 / 0.05);
+    --shadow-xl:  0 20px 25px -5px oklch(0 0 0 / 0.10), 0 8px 10px -6px oklch(0 0 0 / 0.05);
+  }
+
+  [data-theme="dark"] {
+    --color-bg:               var(--primitive-neutral-950);
+    --color-bg-muted:         oklch(0.14 0.008 240);
+    --color-bg-subtle:        oklch(0.18 0.009 240);
+    --color-bg-inverse:       var(--primitive-neutral-0);
+
+    --color-fg:               var(--primitive-neutral-50);
+    --color-fg-muted:         var(--primitive-neutral-400);
+    --color-fg-subtle:        var(--primitive-neutral-500);
+    --color-fg-inverse:       var(--primitive-neutral-950);
+    --color-fg-placeholder:   var(--primitive-neutral-600);
+
+    --color-border:           oklch(0.22 0.008 240);
+    --color-border-strong:    oklch(0.30 0.010 240);
+
+    --color-success-bg:       oklch(0.20 0.05 155);
+    --color-success-fg:       oklch(0.75 0.10 155);
+
+    --color-warning-bg:       oklch(0.20 0.05 75);
+    --color-warning-fg:       oklch(0.85 0.10 75);
+
+    --color-danger-bg:        oklch(0.20 0.05 22);
+    --color-danger-fg:        oklch(0.80 0.10 22);
+
+    --shadow-sm:  0 1px 2px 0 oklch(0 0 0 / 0.25);
+    --shadow-md:  0 4px 6px -1px oklch(0 0 0 / 0.30), 0 2px 4px -2px oklch(0 0 0 / 0.25);
+    --shadow-lg:  0 10px 15px -3px oklch(0 0 0 / 0.35), 0 4px 6px -4px oklch(0 0 0 / 0.25);
+  }
+
+  /* ── Compact density override ── */
+  [data-density="compact"] {
+    --density-row-height:  2.75rem;
+    --density-spacing-sm:  0.375rem;
+    --density-spacing-md:  0.75rem;
+    --density-spacing-lg:  1.125rem;
+  }
+}
