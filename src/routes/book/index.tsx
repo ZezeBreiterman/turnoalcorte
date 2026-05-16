@@ -11,6 +11,7 @@ import {
   Calendar,
   MapPin,
   Sparkles,
+  Zap,
 } from 'lucide-react'
 import { format, addDays, getDay } from 'date-fns'
 import { supabase } from '@/lib/supabase'
@@ -37,6 +38,7 @@ type Step = 'service' | 'barber' | 'datetime' | 'info' | 'done'
 interface BookingState {
   service?: Service
   barber?: Barber
+  noPreference?: boolean // true = "Sin preferencia" selected, barber auto-assigned on slot pick
   slot?: TimeSlot
   date?: Date
   name: string
@@ -45,6 +47,9 @@ interface BookingState {
   holdId?: string
   holdExpiresAt?: number // ms epoch
 }
+
+// ── Availability hint types ────────────────────────────────────────────────────
+type DayHint = 'available' | 'limited' | 'off'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -160,6 +165,65 @@ async function fetchSlotsForDay(barberId: string, service: Service, date: Date):
   })
 }
 
+// Lightweight hint for 14-day strip: does NOT do full slot resolution.
+// 2 DB queries cover all barbers × all days in the range.
+async function fetchAvailabilityHints(
+  barberIds: string[],
+  service: Service,
+  days: Date[],
+): Promise<Map<string, DayHint>> {
+  if (barberIds.length === 0 || days.length === 0) return new Map()
+  const rangeStart = days[0]
+  const rangeEnd = days[days.length - 1]
+  const [scheduleRes, timeOffRes] = await Promise.all([
+    supabase.from('barber_schedules')
+      .select('barber_id, day_of_week, start_time, end_time')
+      .in('barber_id', barberIds),
+    supabase.from('time_off')
+      .select('barber_id, start_at, end_at')
+      .in('barber_id', barberIds)
+      .lte('start_at', endOfDay(rangeEnd).toISOString())
+      .gte('end_at', startOfDay(rangeStart).toISOString()),
+  ])
+  const schedules = scheduleRes.data ?? []
+  const timeOffs = timeOffRes.data ?? []
+  const result = new Map<string, DayHint>()
+  for (const day of days) {
+    const key = format(day, 'yyyy-MM-dd')
+    const dow = day.getDay()
+    let bestEstimate = 0
+    for (const bid of barberIds) {
+      const sched = schedules.find(s => s.barber_id === bid && s.day_of_week === dow)
+      if (!sched) continue
+      const fullyBlocked = timeOffs.some(
+        to => to.barber_id === bid &&
+          new Date(to.start_at) <= startOfDay(day) &&
+          new Date(to.end_at) >= endOfDay(day),
+      )
+      if (fullyBlocked) continue
+      const [sh, sm] = (sched.start_time as string).split(':').map(Number)
+      const [eh, em] = (sched.end_time as string).split(':').map(Number)
+      const workMin = (eh * 60 + em) - (sh * 60 + sm)
+      const slotSize = service.duration_minutes + (service.buffer_after_minutes ?? 10)
+      bestEstimate = Math.max(bestEstimate, Math.floor(workMin / slotSize))
+    }
+    result.set(key, bestEstimate === 0 ? 'off' : bestEstimate <= 3 ? 'limited' : 'available')
+  }
+  return result
+}
+
+// Fetch slots for multiple barbers in parallel.
+async function fetchSlotsForBarbers(
+  barbers: Barber[],
+  service: Service,
+  date: Date,
+): Promise<Record<string, TimeSlot[]>> {
+  const entries = await Promise.all(
+    barbers.map(async b => [b.id, await fetchSlotsForDay(b.id, service, date)] as const),
+  )
+  return Object.fromEntries(entries)
+}
+
 // ── Magnetic CTA Button ───────────────────────────────────────────────────────
 
 function MagneticButton({
@@ -227,28 +291,42 @@ function MagneticButton({
 
 // ── Day strip ─────────────────────────────────────────────────────────────────
 
-function DayStrip({ selected, onSelect }: { selected: Date | undefined; onSelect: (d: Date) => void }) {
+function DayStrip({
+  selected,
+  onSelect,
+  hints,
+}: {
+  selected: Date | undefined
+  onSelect: (d: Date) => void
+  hints?: Map<string, DayHint>
+}) {
   const days = Array.from({ length: 14 }, (_, i) => startOfDay(addDays(now(), i)))
   return (
     <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1"
       style={{ scrollbarWidth: 'none' }}>
       {days.map((day) => {
-        const isSelected = selected && format(selected, 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd')
-        const isNow = format(day, 'yyyy-MM-dd') === format(now(), 'yyyy-MM-dd')
+        const key = format(day, 'yyyy-MM-dd')
+        const isSelected = selected && format(selected, 'yyyy-MM-dd') === key
+        const isNow = key === format(now(), 'yyyy-MM-dd')
+        const hint = hints?.get(key)
+        const isOff = hint === 'off'
         return (
           <motion.button
             key={day.toISOString()}
             type="button"
             onClick={() => onSelect(day)}
             whileTap={{ scale: 0.93 }}
+            disabled={isOff}
             className={cn(
               'flex flex-col items-center shrink-0 w-13 min-w-[52px] rounded-2xl py-2.5 px-1.5 border transition-colors duration-150',
               'focus-visible:outline-none focus-visible:ring-2',
-              isSelected
-                ? 'text-white border-transparent'
-                : isNow
-                  ? 'border-[var(--color-primary)]/60 text-[var(--color-primary)]'
-                  : 'border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)]'
+              isOff && !isSelected
+                ? 'opacity-35 cursor-not-allowed border-[var(--color-border)]'
+                : isSelected
+                  ? 'text-white border-transparent'
+                  : isNow
+                    ? 'border-[var(--color-primary)]/60 text-[var(--color-primary)]'
+                    : 'border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)]'
             )}
             style={isSelected ? { backgroundColor: ACCENT, borderColor: ACCENT } : {}}
           >
@@ -259,6 +337,17 @@ function DayStrip({ selected, onSelect }: { selected: Date | undefined; onSelect
             <span className="text-[9px] leading-none mt-1 opacity-70 uppercase tracking-wider">
               {MONTH_LABELS[day.getMonth()]}
             </span>
+            {/* Availability dot */}
+            <div className="h-1 mt-1 flex items-center justify-center">
+              {!isSelected && hint && hint !== 'off' && (
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="size-1 rounded-full"
+                  style={{ backgroundColor: hint === 'limited' ? '#f97316' : '#22c55e' }}
+                />
+              )}
+            </div>
           </motion.button>
         )
       })}
@@ -351,13 +440,72 @@ function StepService({ services, selected, onSelect }: {
 
 // ── Step: Barber ──────────────────────────────────────────────────────────────
 
-function StepBarber({ barbers, selected, onSelect }: {
+function StepBarber({ barbers, selected, noPreference, onSelect }: {
   barbers: Barber[]
   selected?: Barber
-  onSelect: (b: Barber) => void
+  noPreference?: boolean
+  onSelect: (b: Barber | null) => void
 }) {
   return (
     <motion.div variants={listVariants} initial="hidden" animate="show" className="space-y-2.5">
+      {/* ── Sin preferencia card ────────────────────────────────────────────── */}
+      <motion.button
+        variants={itemVariants}
+        type="button"
+        onClick={() => onSelect(null)}
+        whileTap={{ scale: 0.985 }}
+        className={cn(
+          'w-full flex items-center gap-4 rounded-2xl border p-4 text-left transition-all duration-200',
+          'focus-visible:outline-none focus-visible:ring-2',
+          noPreference ? '' : 'border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-border-strong)] hover:shadow-sm',
+        )}
+        style={noPreference ? {
+          borderColor: ACCENT + '80',
+          backgroundColor: ACCENT + '08',
+          boxShadow: `0 0 0 1px ${ACCENT}30, 0 2px 8px -2px ${ACCENT}20`,
+        } : {}}
+      >
+        {/* Stacked avatars */}
+        <div className="relative shrink-0 size-12">
+          {barbers.slice(0, 3).map((b, idx) => (
+            <div
+              key={b.id}
+              className="absolute size-7 rounded-lg flex items-center justify-center text-[10px] font-bold text-white border-2 border-[var(--color-bg)]"
+              style={{ backgroundColor: b.color ?? '#6366f1', left: idx * 9, top: idx * 5, zIndex: 3 - idx }}
+            >
+              {b.name.charAt(0)}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-[var(--color-fg)]">Sin preferencia</p>
+          <p className="text-xs text-[var(--color-fg-muted)] mt-0.5">
+            Te asignamos el barbero más disponible
+          </p>
+        </div>
+
+        <div className="size-8 rounded-xl shrink-0 flex items-center justify-center"
+          style={{ backgroundColor: ACCENT + '15' }}>
+          <Zap className="size-3.5" style={{ color: ACCENT }} />
+        </div>
+
+        <AnimatePresence>
+          {noPreference && (
+            <motion.div
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+              className="size-5 rounded-full flex items-center justify-center shrink-0"
+              style={{ backgroundColor: ACCENT }}
+            >
+              <Check className="size-3 text-white" strokeWidth={2.5} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.button>
+
       {barbers.map((b) => {
         const isSelected = selected?.id === b.id
         const color = b.color ?? '#6366f1'
@@ -435,30 +583,156 @@ function StepBarber({ barbers, selected, onSelect }: {
 
 // ── Step: Date + Time ─────────────────────────────────────────────────────────
 
-function StepDateTime({ barber, service, selectedDate, selectedSlot, isHolding, onDateSelect, onSlotSelect }: {
-  barber: Barber
+function StepDateTime({
+  barbers,
+  barber,
+  service,
+  selectedDate,
+  selectedSlot,
+  isHolding,
+  onDateSelect,
+  onSlotSelect,
+}: {
+  barbers: Barber[]
+  barber: Barber | null // null = noPreference
   service: Service
   selectedDate?: Date
   selectedSlot?: TimeSlot
   isHolding?: boolean
   onDateSelect: (d: Date) => void
-  onSlotSelect: (s: TimeSlot) => void
+  onSlotSelect: (s: TimeSlot, assignedBarber: Barber) => void
 }) {
-  const { data: slots = [], isLoading, isFetching } = useQuery({
-    queryKey: keys.availability.slots(barber.id, service.id, selectedDate?.toISOString() ?? ''),
-    queryFn: () => fetchSlotsForDay(barber.id, service, selectedDate!),
-    enabled: !!selectedDate,
+  const noPreference = barber === null
+  // Which barber tab is being viewed ('any' only relevant in noPreference mode)
+  const [viewingBarberId, setViewingBarberId] = useState<string | 'any'>('any')
+
+  // Reset tab on date change
+  useEffect(() => { setViewingBarberId('any') }, [selectedDate])
+
+  const viewingBarber: Barber | null = noPreference
+    ? (viewingBarberId === 'any' ? null : (barbers.find(b => b.id === viewingBarberId) ?? null))
+    : barber
+
+  const targetBarbers = viewingBarber ? [viewingBarber] : barbers
+
+  // 14-day hint: 2 DB queries total, independent of date selection
+  const days = Array.from({ length: 14 }, (_, i) => startOfDay(addDays(now(), i)))
+  const barberIds = noPreference ? barbers.map(b => b.id) : barber ? [barber.id] : []
+  const { data: hints } = useQuery({
+    queryKey: ['book', 'hints', ...barberIds, service.id],
+    queryFn: () => fetchAvailabilityHints(barberIds, service, days),
+    staleTime: 5 * 60 * 1000,
+    enabled: barberIds.length > 0,
   })
+
+  // Slot query: single barber or all barbers in parallel
+  const { data: slotsByBarber = {}, isLoading, isFetching } = useQuery({
+    queryKey: ['book', 'slots', viewingBarber?.id ?? 'any', ...barberIds, service.id, selectedDate?.toISOString() ?? ''],
+    queryFn: () => {
+      if (!selectedDate) return {} as Record<string, TimeSlot[]>
+      if (viewingBarber) {
+        return fetchSlotsForDay(viewingBarber.id, service, selectedDate)
+          .then(s => ({ [viewingBarber.id]: s }))
+      }
+      return fetchSlotsForBarbers(targetBarbers, service, selectedDate)
+    },
+    enabled: !!selectedDate && barberIds.length > 0,
+  })
+
+  // Merge slots for 'any' view: unique start times, sorted
+  const displaySlots: TimeSlot[] = viewingBarber
+    ? (slotsByBarber[viewingBarber.id] ?? [])
+    : (() => {
+        const seen = new Set<string>()
+        return Object.values(slotsByBarber)
+          .flat()
+          .filter(s => { const k = s.startAt.toISOString(); if (seen.has(k)) return false; seen.add(k); return true })
+          .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
+      })()
+
+  // For a slot in 'any' mode, pick the barber with the most slots that day (most available = least booked)
+  function resolveBarber(slot: TimeSlot): Barber {
+    if (viewingBarber) return viewingBarber
+    const slotKey = slot.startAt.toISOString()
+    const candidates = barbers.filter(b =>
+      (slotsByBarber[b.id] ?? []).some(s => s.startAt.toISOString() === slotKey),
+    )
+    if (candidates.length === 0) return barbers[0]
+    return candidates.reduce((best, b) =>
+      (slotsByBarber[b.id]?.length ?? 0) > (slotsByBarber[best.id]?.length ?? 0) ? b : best,
+    )
+  }
+
+  // How many barbers share a slot (shown as badge in 'any' view)
+  function barberCountForSlot(slot: TimeSlot): number {
+    if (!noPreference || viewingBarberId !== 'any') return 1
+    const k = slot.startAt.toISOString()
+    return barbers.filter(b => (slotsByBarber[b.id] ?? []).some(s => s.startAt.toISOString() === k)).length
+  }
 
   return (
     <div className="space-y-6">
+      {/* ── Barber filter tabs (noPreference only) ────────────────────────── */}
+      {noPreference && (
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)] mb-3">
+            Barbero
+          </p>
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+            {/* Any */}
+            <button
+              type="button"
+              onClick={() => setViewingBarberId('any')}
+              className={cn(
+                'shrink-0 flex items-center gap-1.5 h-9 px-3.5 rounded-xl border text-xs font-semibold transition-all duration-150 focus-visible:outline-none',
+                viewingBarberId === 'any'
+                  ? 'text-white border-transparent'
+                  : 'border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)]',
+              )}
+              style={viewingBarberId === 'any' ? { backgroundColor: ACCENT } : {}}
+            >
+              <Zap className="size-3" />
+              Cualquiera
+            </button>
+            {barbers.map(b => {
+              const active = viewingBarberId === b.id
+              const color = b.color ?? '#6366f1'
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => setViewingBarberId(b.id)}
+                  className={cn(
+                    'shrink-0 flex items-center gap-1.5 h-9 px-3.5 rounded-xl border text-xs font-semibold transition-all duration-150 focus-visible:outline-none',
+                    active
+                      ? 'text-white border-transparent'
+                      : 'border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)]',
+                  )}
+                  style={active ? { backgroundColor: color } : {}}
+                >
+                  <div
+                    className="size-4 rounded-full text-[8px] font-bold text-white flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: active ? 'rgba(255,255,255,0.3)' : color }}
+                  >
+                    {b.name.charAt(0)}
+                  </div>
+                  {b.name.split(' ')[0]}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Day strip ────────────────────────────────────────────────────────── */}
       <div>
         <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)] mb-3">
           Día
         </p>
-        <DayStrip selected={selectedDate} onSelect={onDateSelect} />
+        <DayStrip selected={selectedDate} onSelect={onDateSelect} hints={hints} />
       </div>
 
+      {/* ── Time slots ───────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {selectedDate && (
           <motion.div
@@ -466,16 +740,23 @@ function StepDateTime({ barber, service, selectedDate, selectedSlot, isHolding, 
             animate={{ opacity: 1, y: 0 }}
             transition={{ type: 'spring', stiffness: 120, damping: 20 }}
           >
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)] mb-3">
-              Horarios disponibles
-            </p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)]">
+                Horarios disponibles
+              </p>
+              {noPreference && viewingBarberId === 'any' && displaySlots.length > 0 && (
+                <p className="text-[10px] text-[var(--color-fg-subtle)]">
+                  Barbero asignado automáticamente
+                </p>
+              )}
+            </div>
             {(isLoading || isFetching) ? (
               <div className="flex gap-2 flex-wrap">
                 {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="h-9 w-16 rounded-xl bg-[var(--color-bg-subtle)] animate-pulse" />
+                  <div key={i} className="h-11 w-16 rounded-xl bg-[var(--color-bg-subtle)] animate-pulse" />
                 ))}
               </div>
-            ) : slots.length === 0 ? (
+            ) : displaySlots.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[var(--color-border)] p-6 text-center">
                 <Clock className="size-5 mx-auto text-[var(--color-fg-subtle)] mb-2" />
                 <p className="text-sm font-medium text-[var(--color-fg-muted)]">Sin turnos disponibles</p>
@@ -488,23 +769,24 @@ function StepDateTime({ barber, service, selectedDate, selectedSlot, isHolding, 
                 animate="show"
                 className="flex flex-wrap gap-2"
               >
-                {slots.map((slot) => {
+                {displaySlots.map((slot) => {
                   const isSelected = selectedSlot?.startAt.toISOString() === slot.startAt.toISOString()
+                  const count = barberCountForSlot(slot)
                   return (
                     <motion.button
                       key={slot.startAt.toISOString()}
                       variants={itemVariants}
                       type="button"
-                      onClick={() => onSlotSelect(slot)}
+                      onClick={() => onSlotSelect(slot, resolveBarber(slot))}
                       disabled={isHolding}
                       whileTap={{ scale: 0.93 }}
                       className={cn(
-                        'h-11 px-3.5 rounded-xl border text-xs font-semibold transition-all duration-150',
+                        'relative h-11 px-3.5 rounded-xl border text-xs font-semibold transition-all duration-150',
                         'focus-visible:outline-none tabular-nums font-[var(--font-mono)]',
                         isHolding && 'opacity-50 cursor-not-allowed',
                         isSelected
                           ? 'text-white border-transparent'
-                          : 'border-[var(--color-border)] text-[var(--color-fg)] hover:border-[var(--color-primary)]/60'
+                          : 'border-[var(--color-border)] text-[var(--color-fg)] hover:border-[var(--color-primary)]/60',
                       )}
                       style={isSelected ? {
                         backgroundColor: ACCENT,
@@ -513,6 +795,15 @@ function StepDateTime({ barber, service, selectedDate, selectedSlot, isHolding, 
                       } : {}}
                     >
                       {formatTime(slot.startAt)}
+                      {/* Barber count badge in 'any' view */}
+                      {count > 1 && !isSelected && (
+                        <span
+                          className="absolute -top-1.5 -right-1.5 size-4 rounded-full text-[8px] font-bold text-white flex items-center justify-center"
+                          style={{ backgroundColor: '#22c55e' }}
+                        >
+                          {count}
+                        </span>
+                      )}
                     </motion.button>
                   )
                 })}
@@ -851,7 +1142,7 @@ function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingStat
             </motion.div>
           )}
 
-          {booking.barber && (
+          {(booking.barber || booking.noPreference) && (
             <motion.div
               key="barber-ctx"
               initial={{ opacity: 0, y: 8 }}
@@ -864,17 +1155,26 @@ function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingStat
                 border: '1px solid rgba(255,255,255,0.07)',
               }}
             >
-              <div
-                className="size-8 rounded-xl flex items-center justify-center text-xs font-bold text-white shrink-0"
-                style={{ backgroundColor: booking.barber.color ?? '#6366f1' }}
-              >
-                {booking.barber.name.charAt(0)}
-              </div>
+              {booking.barber ? (
+                <div
+                  className="size-8 rounded-xl flex items-center justify-center text-xs font-bold text-white shrink-0"
+                  style={{ backgroundColor: booking.barber.color ?? '#6366f1' }}
+                >
+                  {booking.barber.name.charAt(0)}
+                </div>
+              ) : (
+                <div
+                  className="size-8 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ backgroundColor: ACCENT + '25' }}
+                >
+                  <Zap className="size-3.5" style={{ color: ACCENT }} />
+                </div>
+              )}
               <div className="min-w-0">
                 <p className="text-[9px] font-bold uppercase tracking-widest mb-0.5"
                   style={{ color: SIDEBAR_MUTED }}>Barbero</p>
                 <p className="text-sm font-semibold truncate" style={{ color: SIDEBAR_TEXT }}>
-                  {booking.barber.name}
+                  {booking.barber ? booking.barber.name : 'Sin preferencia'}
                 </p>
               </div>
             </motion.div>
@@ -971,21 +1271,22 @@ export default function BookPage() {
 
   // Select a slot → place a 10-min server-side hold so nobody else can take it
   // while the customer fills the form.
+  // Accepts explicit barber (needed for noPreference auto-assignment).
   const { mutate: holdSlot, isPending: isHolding } = useMutation({
-    mutationFn: async (slot: TimeSlot) => {
-      if (!booking.barber) throw new Error('Missing barber')
+    mutationFn: async ({ slot, barber }: { slot: TimeSlot; barber: Barber }) => {
       const { data, error } = await supabase.rpc('hold_slot', {
-        p_barber_id: booking.barber.id,
+        p_barber_id: barber.id,
         p_start: slot.startAt.toISOString(),
         p_end: slot.endAt.toISOString(),
       })
       if (error) throw error
       const row = Array.isArray(data) ? data[0] : data
-      return { slot, holdId: row.hold_id as string, expiresAt: new Date(row.expires_at).getTime() }
+      return { slot, barber, holdId: row.hold_id as string, expiresAt: new Date(row.expires_at).getTime() }
     },
-    onSuccess: ({ slot, holdId, expiresAt }) => {
+    onSuccess: ({ slot, barber, holdId, expiresAt }) => {
       // Switching holdId auto-releases the previous hold via the effect below.
-      setBooking((b) => ({ ...b, slot, holdId, holdExpiresAt: expiresAt }))
+      // Also store the (auto-)assigned barber here.
+      setBooking((b) => ({ ...b, slot, barber, holdId, holdExpiresAt: expiresAt }))
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
@@ -1046,7 +1347,7 @@ export default function BookPage() {
 
   function handleNext() {
     if (step === 'service' && booking.service) navigate('barber', 1)
-    else if (step === 'barber' && booking.barber) navigate('datetime', 1)
+    else if (step === 'barber' && (booking.barber || booking.noPreference)) navigate('datetime', 1)
     else if (step === 'datetime' && booking.slot) navigate('info', 1)
     else if (step === 'info') {
       const errors: typeof infoErrors = {}
@@ -1060,7 +1361,7 @@ export default function BookPage() {
 
   const canNext =
     (step === 'service' && !!booking.service) ||
-    (step === 'barber' && !!booking.barber) ||
+    (step === 'barber' && (!!booking.barber || !!booking.noPreference)) ||
     (step === 'datetime' && !!booking.slot) ||
     step === 'info'
 
@@ -1180,18 +1481,28 @@ export default function BookPage() {
                   <StepBarber
                     barbers={barbers}
                     selected={booking.barber}
-                    onSelect={(b) => setBooking((prev) => ({ ...prev, barber: b, slot: undefined, date: undefined, holdId: undefined, holdExpiresAt: undefined }))}
+                    noPreference={booking.noPreference}
+                    onSelect={(b) => setBooking((prev) => ({
+                      ...prev,
+                      barber: b ?? undefined,
+                      noPreference: b === null,
+                      slot: undefined,
+                      date: undefined,
+                      holdId: undefined,
+                      holdExpiresAt: undefined,
+                    }))}
                   />
                 )}
-                {step === 'datetime' && booking.barber && booking.service && (
+                {step === 'datetime' && (booking.barber || booking.noPreference) && booking.service && (
                   <StepDateTime
-                    barber={booking.barber}
+                    barbers={barbers}
+                    barber={booking.barber ?? null}
                     service={booking.service}
                     selectedDate={booking.date}
                     selectedSlot={booking.slot}
                     isHolding={isHolding}
                     onDateSelect={(d) => setBooking((b) => ({ ...b, date: d, slot: undefined, holdId: undefined, holdExpiresAt: undefined }))}
-                    onSlotSelect={(s) => holdSlot(s)}
+                    onSlotSelect={(s, assignedBarber) => holdSlot({ slot: s, barber: assignedBarber })}
                   />
                 )}
                 {step === 'info' && (
