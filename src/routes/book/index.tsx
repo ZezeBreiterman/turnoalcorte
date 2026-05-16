@@ -33,12 +33,12 @@ import { cn } from '@/lib/utils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Step = 'service' | 'barber' | 'datetime' | 'info' | 'done'
+// Merged flow: service → pick (barber+date+time) → info → done
+type Step = 'service' | 'pick' | 'info' | 'done'
 
 interface BookingState {
   service?: Service
-  barber?: Barber
-  noPreference?: boolean // true = "Sin preferencia" selected, barber auto-assigned on slot pick
+  barber?: Barber  // set when slot is held (auto-assigned or explicit tab choice)
   slot?: TimeSlot
   date?: Date
   name: string
@@ -61,14 +61,13 @@ const SIDEBAR_MUTED = 'rgba(255,255,255,0.4)'
 const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
-const STEPS: Step[] = ['service', 'barber', 'datetime', 'info', 'done']
+const STEPS: Step[] = ['service', 'pick', 'info', 'done']
 
 const STEP_META: Record<Step, { title: string; sub: string; sideLabel: string }> = {
-  service:  { title: '¿Qué servicio querés?',       sub: 'Elegí el tipo de corte o tratamiento.', sideLabel: 'Servicio'  },
-  barber:   { title: '¿Con quién te querés cortar?', sub: 'Conocé a nuestro equipo.',              sideLabel: 'Barbero'   },
-  datetime: { title: '¿Cuándo te viene bien?',       sub: 'Elegí día y horario disponible.',       sideLabel: 'Fecha'     },
-  info:     { title: '¿Cómo te llamamos?',           sub: 'Tus datos para confirmar el turno.',    sideLabel: 'Tus datos' },
-  done:     { title: '',                              sub: '',                                      sideLabel: ''          },
+  service: { title: '¿Qué servicio querés?',   sub: 'Elegí el tipo de corte o tratamiento.',   sideLabel: 'Servicio'  },
+  pick:    { title: '¿Cuándo te viene bien?',  sub: 'Elegí barbero, día y horario disponible.', sideLabel: 'Turno'     },
+  info:    { title: '¿Cómo te llamamos?',      sub: 'Tus datos para confirmar el turno.',       sideLabel: 'Tus datos' },
+  done:    { title: '',                         sub: '',                                          sideLabel: ''          },
 }
 
 // ── Animation variants ────────────────────────────────────────────────────────
@@ -222,6 +221,23 @@ async function fetchSlotsForBarbers(
     barbers.map(async b => [b.id, await fetchSlotsForDay(b.id, service, date)] as const),
   )
   return Object.fromEntries(entries)
+}
+
+// Filter barbers who can perform a given service.
+// Falls back to all barbers if the assignment table is empty or not populated.
+async function fetchBarbersByService(serviceId: string, allBarbers: Barber[]): Promise<Barber[]> {
+  try {
+    const { data, error } = await supabase
+      .from('staff_service_assignments')
+      .select('barber_id')
+      .eq('service_id', serviceId)
+    if (error || !data || data.length === 0) return allBarbers
+    const ids = new Set((data as { barber_id: string }[]).map(r => r.barber_id))
+    const filtered = allBarbers.filter(b => ids.has(b.id))
+    return filtered.length > 0 ? filtered : allBarbers
+  } catch {
+    return allBarbers
+  }
 }
 
 // ── Magnetic CTA Button ───────────────────────────────────────────────────────
@@ -438,154 +454,15 @@ function StepService({ services, selected, onSelect }: {
   )
 }
 
-// ── Step: Barber ──────────────────────────────────────────────────────────────
+// ── Step: Pick (unified barber + date + time) ─────────────────────────────────
+// Replaces separate barber and datetime steps.
+// - Barber filter tabs: "Cualquiera" (auto-assign) + one per barber filtered by service
+// - Day strip: availability hints via 2 DB queries, today auto-selected on mount
+// - Time slots: parallel per-barber fetch; badge shows how many barbers share a slot
+// - Barber assignment happens on slot click (auto or explicit tab)
 
-function StepBarber({ barbers, selected, noPreference, onSelect }: {
-  barbers: Barber[]
-  selected?: Barber
-  noPreference?: boolean
-  onSelect: (b: Barber | null) => void
-}) {
-  return (
-    <motion.div variants={listVariants} initial="hidden" animate="show" className="space-y-2.5">
-      {/* ── Sin preferencia card ────────────────────────────────────────────── */}
-      <motion.button
-        variants={itemVariants}
-        type="button"
-        onClick={() => onSelect(null)}
-        whileTap={{ scale: 0.985 }}
-        className={cn(
-          'w-full flex items-center gap-4 rounded-2xl border p-4 text-left transition-all duration-200',
-          'focus-visible:outline-none focus-visible:ring-2',
-          noPreference ? '' : 'border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-border-strong)] hover:shadow-sm',
-        )}
-        style={noPreference ? {
-          borderColor: ACCENT + '80',
-          backgroundColor: ACCENT + '08',
-          boxShadow: `0 0 0 1px ${ACCENT}30, 0 2px 8px -2px ${ACCENT}20`,
-        } : {}}
-      >
-        {/* Stacked avatars */}
-        <div className="relative shrink-0 size-12">
-          {barbers.slice(0, 3).map((b, idx) => (
-            <div
-              key={b.id}
-              className="absolute size-7 rounded-lg flex items-center justify-center text-[10px] font-bold text-white border-2 border-[var(--color-bg)]"
-              style={{ backgroundColor: b.color ?? '#6366f1', left: idx * 9, top: idx * 5, zIndex: 3 - idx }}
-            >
-              {b.name.charAt(0)}
-            </div>
-          ))}
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-[var(--color-fg)]">Sin preferencia</p>
-          <p className="text-xs text-[var(--color-fg-muted)] mt-0.5">
-            Te asignamos el barbero más disponible
-          </p>
-        </div>
-
-        <div className="size-8 rounded-xl shrink-0 flex items-center justify-center"
-          style={{ backgroundColor: ACCENT + '15' }}>
-          <Zap className="size-3.5" style={{ color: ACCENT }} />
-        </div>
-
-        <AnimatePresence>
-          {noPreference && (
-            <motion.div
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-              className="size-5 rounded-full flex items-center justify-center shrink-0"
-              style={{ backgroundColor: ACCENT }}
-            >
-              <Check className="size-3 text-white" strokeWidth={2.5} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.button>
-
-      {barbers.map((b) => {
-        const isSelected = selected?.id === b.id
-        const color = b.color ?? '#6366f1'
-        return (
-          <motion.button
-            key={b.id}
-            variants={itemVariants}
-            type="button"
-            onClick={() => onSelect(b)}
-            whileTap={{ scale: 0.985 }}
-            className={cn(
-              'w-full flex items-center gap-4 rounded-2xl border p-4 text-left transition-all duration-200',
-              'focus-visible:outline-none focus-visible:ring-2',
-              isSelected ? '' : 'border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-border-strong)] hover:shadow-sm'
-            )}
-            style={isSelected ? {
-              borderColor: color + '80',
-              backgroundColor: color + '08',
-              boxShadow: `0 0 0 1px ${color}30, 0 2px 8px -2px ${color}20`,
-            } : {}}
-          >
-            {/* Avatar */}
-            <div className="relative shrink-0">
-              {b.photo_url ? (
-                <img
-                  src={b.photo_url}
-                  alt={b.name}
-                  className="size-12 rounded-xl object-cover"
-                />
-              ) : (
-                <div
-                  className="size-12 rounded-xl flex items-center justify-center text-base font-bold text-white"
-                  style={{ background: `linear-gradient(135deg, ${color}cc, ${color})` }}
-                >
-                  {b.name.charAt(0).toUpperCase()}
-                </div>
-              )}
-              <AnimatePresence>
-                {isSelected && (
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    exit={{ scale: 0 }}
-                    transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                    className="absolute -bottom-1 -right-1 size-5 rounded-full flex items-center justify-center border-2 border-[var(--color-bg)]"
-                    style={{ backgroundColor: ACCENT }}
-                  >
-                    <Check className="size-2.5 text-white" strokeWidth={3} />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-[var(--color-fg)]">{b.name}</p>
-              {b.bio ? (
-                <p className="text-xs text-[var(--color-fg-muted)] line-clamp-1 mt-0.5">{b.bio}</p>
-              ) : (
-                <p className="text-xs text-[var(--color-fg-muted)] mt-0.5">Barbero profesional</p>
-              )}
-            </div>
-
-            <div
-              className="size-8 rounded-xl shrink-0 flex items-center justify-center"
-              style={{ backgroundColor: color + '15' }}
-            >
-              <User className="size-3.5" style={{ color }} />
-            </div>
-          </motion.button>
-        )
-      })}
-    </motion.div>
-  )
-}
-
-// ── Step: Date + Time ─────────────────────────────────────────────────────────
-
-function StepDateTime({
-  barbers,
-  barber,
+function StepPick({
+  allBarbers,
   service,
   selectedDate,
   selectedSlot,
@@ -593,31 +470,43 @@ function StepDateTime({
   onDateSelect,
   onSlotSelect,
 }: {
-  barbers: Barber[]
-  barber: Barber | null // null = noPreference
+  allBarbers: Barber[]
   service: Service
   selectedDate?: Date
   selectedSlot?: TimeSlot
   isHolding?: boolean
   onDateSelect: (d: Date) => void
-  onSlotSelect: (s: TimeSlot, assignedBarber: Barber) => void
+  onSlotSelect: (s: TimeSlot, barber: Barber) => void
 }) {
-  const noPreference = barber === null
-  // Which barber tab is being viewed ('any' only relevant in noPreference mode)
   const [viewingBarberId, setViewingBarberId] = useState<string | 'any'>('any')
 
-  // Reset tab on date change
-  useEffect(() => { setViewingBarberId('any') }, [selectedDate])
+  // Auto-select today on mount so slots appear immediately
+  const autoSelectedRef = useRef(false)
+  useEffect(() => {
+    if (!autoSelectedRef.current && !selectedDate) {
+      autoSelectedRef.current = true
+      onDateSelect(startOfDay(now()))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  const viewingBarber: Barber | null = noPreference
-    ? (viewingBarberId === 'any' ? null : (barbers.find(b => b.id === viewingBarberId) ?? null))
-    : barber
+  // Reset tab when service changes (filtered barber list may differ)
+  useEffect(() => { setViewingBarberId('any') }, [service.id])
 
-  const targetBarbers = viewingBarber ? [viewingBarber] : barbers
+  // Filter barbers eligible for this service
+  const { data: filteredBarbers = allBarbers } = useQuery({
+    queryKey: ['book', 'barbers-for-service', service.id],
+    queryFn: () => fetchBarbersByService(service.id, allBarbers),
+    enabled: allBarbers.length > 0,
+    staleTime: 10 * 60 * 1000,
+  })
 
-  // 14-day hint: 2 DB queries total, independent of date selection
+  const viewingBarber: Barber | null =
+    viewingBarberId === 'any' ? null : (filteredBarbers.find(b => b.id === viewingBarberId) ?? null)
+
+  // 14-day availability hints (2 DB queries, cached 5 min)
   const days = Array.from({ length: 14 }, (_, i) => startOfDay(addDays(now(), i)))
-  const barberIds = noPreference ? barbers.map(b => b.id) : barber ? [barber.id] : []
+  const barberIds = filteredBarbers.map(b => b.id)
   const { data: hints } = useQuery({
     queryKey: ['book', 'hints', ...barberIds, service.id],
     queryFn: () => fetchAvailabilityHints(barberIds, service, days),
@@ -625,7 +514,7 @@ function StepDateTime({
     enabled: barberIds.length > 0,
   })
 
-  // Slot query: single barber or all barbers in parallel
+  // Time slots: one barber or all in parallel
   const { data: slotsByBarber = {}, isLoading, isFetching } = useQuery({
     queryKey: ['book', 'slots', viewingBarber?.id ?? 'any', ...barberIds, service.id, selectedDate?.toISOString() ?? ''],
     queryFn: () => {
@@ -634,12 +523,12 @@ function StepDateTime({
         return fetchSlotsForDay(viewingBarber.id, service, selectedDate)
           .then(s => ({ [viewingBarber.id]: s }))
       }
-      return fetchSlotsForBarbers(targetBarbers, service, selectedDate)
+      return fetchSlotsForBarbers(filteredBarbers, service, selectedDate)
     },
     enabled: !!selectedDate && barberIds.length > 0,
   })
 
-  // Merge slots for 'any' view: unique start times, sorted
+  // Merge unique slots for 'any' view
   const displaySlots: TimeSlot[] = viewingBarber
     ? (slotsByBarber[viewingBarber.id] ?? [])
     : (() => {
@@ -650,81 +539,77 @@ function StepDateTime({
           .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
       })()
 
-  // For a slot in 'any' mode, pick the barber with the most slots that day (most available = least booked)
+  // Auto-assign: pick barber with most remaining slots (most available = least booked)
   function resolveBarber(slot: TimeSlot): Barber {
     if (viewingBarber) return viewingBarber
-    const slotKey = slot.startAt.toISOString()
-    const candidates = barbers.filter(b =>
-      (slotsByBarber[b.id] ?? []).some(s => s.startAt.toISOString() === slotKey),
+    const k = slot.startAt.toISOString()
+    const candidates = filteredBarbers.filter(b =>
+      (slotsByBarber[b.id] ?? []).some(s => s.startAt.toISOString() === k),
     )
-    if (candidates.length === 0) return barbers[0]
+    if (candidates.length === 0) return filteredBarbers[0]
     return candidates.reduce((best, b) =>
       (slotsByBarber[b.id]?.length ?? 0) > (slotsByBarber[best.id]?.length ?? 0) ? b : best,
     )
   }
 
-  // How many barbers share a slot (shown as badge in 'any' view)
   function barberCountForSlot(slot: TimeSlot): number {
-    if (!noPreference || viewingBarberId !== 'any') return 1
+    if (viewingBarberId !== 'any') return 1
     const k = slot.startAt.toISOString()
-    return barbers.filter(b => (slotsByBarber[b.id] ?? []).some(s => s.startAt.toISOString() === k)).length
+    return filteredBarbers.filter(b => (slotsByBarber[b.id] ?? []).some(s => s.startAt.toISOString() === k)).length
   }
 
   return (
     <div className="space-y-6">
-      {/* ── Barber filter tabs (noPreference only) ────────────────────────── */}
-      {noPreference && (
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)] mb-3">
-            Barbero
-          </p>
-          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
-            {/* Any */}
-            <button
-              type="button"
-              onClick={() => setViewingBarberId('any')}
-              className={cn(
-                'shrink-0 flex items-center gap-1.5 h-9 px-3.5 rounded-xl border text-xs font-semibold transition-all duration-150 focus-visible:outline-none',
-                viewingBarberId === 'any'
-                  ? 'text-white border-transparent'
-                  : 'border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)]',
-              )}
-              style={viewingBarberId === 'any' ? { backgroundColor: ACCENT } : {}}
-            >
-              <Zap className="size-3" />
-              Cualquiera
-            </button>
-            {barbers.map(b => {
-              const active = viewingBarberId === b.id
-              const color = b.color ?? '#6366f1'
-              return (
-                <button
-                  key={b.id}
-                  type="button"
-                  onClick={() => setViewingBarberId(b.id)}
-                  className={cn(
-                    'shrink-0 flex items-center gap-1.5 h-9 px-3.5 rounded-xl border text-xs font-semibold transition-all duration-150 focus-visible:outline-none',
-                    active
-                      ? 'text-white border-transparent'
-                      : 'border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)]',
-                  )}
-                  style={active ? { backgroundColor: color } : {}}
+      {/* ── Barber filter tabs ──────────────────────────────────────────────── */}
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)] mb-3">
+          Barbero
+        </p>
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+          <button
+            type="button"
+            onClick={() => setViewingBarberId('any')}
+            className={cn(
+              'shrink-0 flex items-center gap-1.5 h-9 px-3.5 rounded-xl border text-xs font-semibold transition-all duration-150 focus-visible:outline-none',
+              viewingBarberId === 'any'
+                ? 'text-white border-transparent'
+                : 'border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)]',
+            )}
+            style={viewingBarberId === 'any' ? { backgroundColor: ACCENT } : {}}
+          >
+            <Zap className="size-3" />
+            Cualquiera
+          </button>
+          {filteredBarbers.map(b => {
+            const active = viewingBarberId === b.id
+            const color = b.color ?? '#6366f1'
+            return (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => setViewingBarberId(b.id)}
+                className={cn(
+                  'shrink-0 flex items-center gap-1.5 h-9 px-3.5 rounded-xl border text-xs font-semibold transition-all duration-150 focus-visible:outline-none',
+                  active
+                    ? 'text-white border-transparent'
+                    : 'border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)]',
+                )}
+                style={active ? { backgroundColor: color } : {}}
+              >
+                <div
+                  className="size-4 rounded-full text-[8px] font-bold text-white flex items-center justify-center shrink-0"
+                  style={{ backgroundColor: active ? 'rgba(255,255,255,0.3)' : color }}
                 >
-                  <div
-                    className="size-4 rounded-full text-[8px] font-bold text-white flex items-center justify-center shrink-0"
-                    style={{ backgroundColor: active ? 'rgba(255,255,255,0.3)' : color }}
-                  >
-                    {b.name.charAt(0)}
-                  </div>
-                  {b.name.split(' ')[0]}
-                </button>
-              )
-            })}
-          </div>
+                  {b.name.charAt(0)}
+                </div>
+                {b.name.split(' ')[0]}
+              </button>
+            )
+          })}
         </div>
-      )}
+      </div>
 
-      {/* ── Day strip ────────────────────────────────────────────────────────── */}
+      {/* ── Day strip ───────────────────────────────────────────────────────── */}
       <div>
         <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)] mb-3">
           Día
@@ -732,7 +617,7 @@ function StepDateTime({
         <DayStrip selected={selectedDate} onSelect={onDateSelect} hints={hints} />
       </div>
 
-      {/* ── Time slots ───────────────────────────────────────────────────────── */}
+      {/* ── Time slots ──────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {selectedDate && (
           <motion.div
@@ -744,7 +629,7 @@ function StepDateTime({
               <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)]">
                 Horarios disponibles
               </p>
-              {noPreference && viewingBarberId === 'any' && displaySlots.length > 0 && (
+              {viewingBarberId === 'any' && displaySlots.length > 0 && (
                 <p className="text-[10px] text-[var(--color-fg-subtle)]">
                   Barbero asignado automáticamente
                 </p>
@@ -795,7 +680,6 @@ function StepDateTime({
                       } : {}}
                     >
                       {formatTime(slot.startAt)}
-                      {/* Barber count badge in 'any' view */}
                       {count > 1 && !isSelected && (
                         <span
                           className="absolute -top-1.5 -right-1.5 size-4 rounded-full text-[8px] font-bold text-white flex items-center justify-center"
@@ -1142,7 +1026,7 @@ function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingStat
             </motion.div>
           )}
 
-          {(booking.barber || booking.noPreference) && (
+          {booking.barber && (
             <motion.div
               key="barber-ctx"
               initial={{ opacity: 0, y: 8 }}
@@ -1155,26 +1039,17 @@ function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingStat
                 border: '1px solid rgba(255,255,255,0.07)',
               }}
             >
-              {booking.barber ? (
-                <div
-                  className="size-8 rounded-xl flex items-center justify-center text-xs font-bold text-white shrink-0"
-                  style={{ backgroundColor: booking.barber.color ?? '#6366f1' }}
-                >
-                  {booking.barber.name.charAt(0)}
-                </div>
-              ) : (
-                <div
-                  className="size-8 rounded-xl flex items-center justify-center shrink-0"
-                  style={{ backgroundColor: ACCENT + '25' }}
-                >
-                  <Zap className="size-3.5" style={{ color: ACCENT }} />
-                </div>
-              )}
+              <div
+                className="size-8 rounded-xl flex items-center justify-center text-xs font-bold text-white shrink-0"
+                style={{ backgroundColor: booking.barber.color ?? '#6366f1' }}
+              >
+                {booking.barber.name.charAt(0)}
+              </div>
               <div className="min-w-0">
                 <p className="text-[9px] font-bold uppercase tracking-widest mb-0.5"
                   style={{ color: SIDEBAR_MUTED }}>Barbero</p>
                 <p className="text-sm font-semibold truncate" style={{ color: SIDEBAR_TEXT }}>
-                  {booking.barber ? booking.barber.name : 'Sin preferencia'}
+                  {booking.barber.name}
                 </p>
               </div>
             </motion.div>
@@ -1256,7 +1131,7 @@ export default function BookPage() {
         queryClient.invalidateQueries({ queryKey: keys.availability.all })
         setBooking((b) => ({ ...b, slot: undefined, holdId: undefined, holdExpiresAt: undefined }))
         setDir(-1)
-        setStep('datetime')
+        setStep('pick')
       } else if (msg.includes('service_unavailable')) {
         toast.error('Ese servicio ya no está disponible.')
       } else {
@@ -1315,7 +1190,7 @@ export default function BookPage() {
         setBooking((b) => ({ ...b, slot: undefined, holdId: undefined, holdExpiresAt: undefined }))
         toast.error('La reserva del horario expiró. Elegí otro turno.')
         setDir(-1)
-        setStep('datetime')
+        setStep('pick')
       } else {
         setHoldRemaining(secs)
       }
@@ -1339,16 +1214,15 @@ export default function BookPage() {
 
   function goBack() {
     const prev: Record<Step, Step | null> = {
-      service: null, barber: 'service', datetime: 'barber', info: 'datetime', done: null,
+      service: null, pick: 'service', info: 'pick', done: null,
     }
     const p = prev[step]
     if (p) navigate(p, -1)
   }
 
   function handleNext() {
-    if (step === 'service' && booking.service) navigate('barber', 1)
-    else if (step === 'barber' && (booking.barber || booking.noPreference)) navigate('datetime', 1)
-    else if (step === 'datetime' && booking.slot) navigate('info', 1)
+    if (step === 'service' && booking.service) navigate('pick', 1)
+    else if (step === 'pick' && booking.slot) navigate('info', 1)
     else if (step === 'info') {
       const errors: typeof infoErrors = {}
       if (!booking.name.trim()) errors.name = 'El nombre es requerido'
@@ -1361,8 +1235,7 @@ export default function BookPage() {
 
   const canNext =
     (step === 'service' && !!booking.service) ||
-    (step === 'barber' && (!!booking.barber || !!booking.noPreference)) ||
-    (step === 'datetime' && !!booking.slot) ||
+    (step === 'pick' && !!booking.slot) ||
     step === 'info'
 
   const stepIdx = STEPS.indexOf(step)
@@ -1474,18 +1347,10 @@ export default function BookPage() {
                   <StepService
                     services={services}
                     selected={booking.service}
-                    onSelect={(s) => setBooking((b) => ({ ...b, service: s, barber: undefined, slot: undefined, date: undefined, holdId: undefined, holdExpiresAt: undefined }))}
-                  />
-                )}
-                {step === 'barber' && (
-                  <StepBarber
-                    barbers={barbers}
-                    selected={booking.barber}
-                    noPreference={booking.noPreference}
-                    onSelect={(b) => setBooking((prev) => ({
-                      ...prev,
-                      barber: b ?? undefined,
-                      noPreference: b === null,
+                    onSelect={(s) => setBooking((b) => ({
+                      ...b,
+                      service: s,
+                      barber: undefined,
                       slot: undefined,
                       date: undefined,
                       holdId: undefined,
@@ -1493,10 +1358,9 @@ export default function BookPage() {
                     }))}
                   />
                 )}
-                {step === 'datetime' && (booking.barber || booking.noPreference) && booking.service && (
-                  <StepDateTime
-                    barbers={barbers}
-                    barber={booking.barber ?? null}
+                {step === 'pick' && booking.service && (
+                  <StepPick
+                    allBarbers={barbers}
                     service={booking.service}
                     selectedDate={booking.date}
                     selectedSlot={booking.slot}
@@ -1524,7 +1388,7 @@ export default function BookPage() {
           {/* Sticky CTA */}
           <div className="px-5 md:px-10 pb-8 pt-4 border-t border-[var(--color-border)] bg-[var(--color-bg)]">
             <AnimatePresence>
-              {holdRemaining != null && holdRemaining > 0 && (step === 'datetime' || step === 'info') && (
+              {holdRemaining != null && holdRemaining > 0 && (step === 'pick' || step === 'info') && (
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -1555,7 +1419,7 @@ export default function BookPage() {
             ) : (
               <button
                 type="button"
-                onClick={() => { setStep('service'); setBooking({ name: '', phone: '' }) }}
+                onClick={() => { navigate('service', -1); setBooking({ name: '', phone: '' }) }}
                 className="w-full h-14 rounded-2xl border border-[var(--color-border)] text-sm font-semibold text-[var(--color-fg)] bg-[var(--color-bg)] hover:bg-[var(--color-bg-subtle)] transition-colors active:scale-[0.98]"
               >
                 Reservar otro turno

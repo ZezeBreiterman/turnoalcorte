@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { keys } from '@/lib/query-keys'
 import type { Barber } from '@/types/database'
 import { PageShell } from '@/components/layout/PageShell'
+import { Tooltip } from '@/components/ui/tooltip'
 import { EmptyState } from '@/components/ui/empty-state'
 import { AppointmentCardSkeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
@@ -826,25 +827,33 @@ export default function BarbersPage() {
             )}
 
             <div className="flex items-center justify-between pt-3 border-t border-[var(--color-border)]">
-              <button
-                type="button"
-                onClick={() => toggleActive({ id: barber.id, active: !barber.active })}
-                className="focus-visible:outline-none"
-              >
-                <Badge variant={barber.active ? 'success' : 'default'}>
-                  {barber.active ? t('barber_status_active') : t('barber_status_inactive')}
-                </Badge>
-              </button>
+              <Tooltip content={barber.active ? t('barber_deactivate', { defaultValue: 'Desactivar' }) : t('barber_activate', { defaultValue: 'Activar' })} side="bottom">
+                <button
+                  type="button"
+                  onClick={() => toggleActive({ id: barber.id, active: !barber.active })}
+                  className="focus-visible:outline-none"
+                >
+                  <Badge variant={barber.active ? 'success' : 'default'}>
+                    {barber.active ? t('barber_status_active') : t('barber_status_inactive')}
+                  </Badge>
+                </button>
+              </Tooltip>
               <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon-sm" onClick={() => openVacation(barber)} aria-label="Vacation">
-                  <CalendarOff className="size-3.5" />
-                </Button>
-                <Button variant="ghost" size="icon-sm" onClick={() => openSchedule(barber)} aria-label="Schedule">
-                  <CalendarDays className="size-3.5" />
-                </Button>
-                <Button variant="ghost" size="icon-sm" onClick={() => openEdit(barber)} aria-label="Edit">
-                  <Pencil className="size-3.5" />
-                </Button>
+                <Tooltip content={t('vacation_title', { defaultValue: 'Tiempo libre' })} side="bottom">
+                  <Button variant="ghost" size="icon-sm" onClick={() => openVacation(barber)} aria-label={t('vacation_title', { defaultValue: 'Tiempo libre' })}>
+                    <CalendarOff className="size-3.5" />
+                  </Button>
+                </Tooltip>
+                <Tooltip content={t('schedule_title', { name: '', defaultValue: 'Horario' }).trim()} side="bottom">
+                  <Button variant="ghost" size="icon-sm" onClick={() => openSchedule(barber)} aria-label={t('schedule_title', { name: '', defaultValue: 'Horario' })}>
+                    <CalendarDays className="size-3.5" />
+                  </Button>
+                </Tooltip>
+                <Tooltip content={t('edit_barber', { defaultValue: 'Editar barbero' })} side="bottom">
+                  <Button variant="ghost" size="icon-sm" onClick={() => openEdit(barber)} aria-label={t('edit_barber', { defaultValue: 'Editar barbero' })}>
+                    <Pencil className="size-3.5" />
+                  </Button>
+                </Tooltip>
               </div>
             </div>
           </div>
