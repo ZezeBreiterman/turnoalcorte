@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Zap, ArrowRight, Mail, RefreshCw, Key } from 'lucide-react'
+import { ArrowRight, Mail, RefreshCw, Key } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { z } from 'zod'
 import { useTranslation } from 'react-i18next'
@@ -7,12 +7,13 @@ import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useTheme } from '@/hooks/useTheme'
+import { Tooltip } from '@/components/ui/tooltip'
 import { useNavigate } from 'react-router-dom'
 
 const emailSchema = z.string().email('Please enter a valid email address')
 
-type Mode   = 'magic' | 'password'
-type State  = 'idle' | 'loading' | 'sent' | 'error'
+type Mode   = 'magic' | 'password' | 'forgot'
+type State  = 'idle' | 'loading' | 'sent' | 'reset_sent' | 'error'
 
 export default function LoginPage() {
   const [email,    setEmail]    = useState('')
@@ -37,6 +38,19 @@ export default function LoginPage() {
     }
 
     setState('loading')
+
+    if (mode === 'forgot') {
+      const { error: err } = await supabase.auth.resetPasswordForEmail(parsed.data, {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      })
+      if (err) {
+        setState('error')
+        setError(err.message)
+      } else {
+        setState('reset_sent')
+      }
+      return
+    }
 
     if (mode === 'password') {
       const { error: err } = await supabase.auth.signInWithPassword({
@@ -84,16 +98,54 @@ export default function LoginPage() {
       </div>
 
       {/* Theme toggle */}
-      <button
-        onClick={toggle}
-        className="absolute top-5 right-5 rounded-[var(--radius-md)] p-2 text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] hover:bg-[var(--color-bg-subtle)] transition-colors"
-        aria-label={t('toggle_theme')}
-      >
-        {isDark ? '☀️' : '🌙'}
-      </button>
+      <Tooltip content={t('toggle_theme')} side="left">
+        <button
+          onClick={toggle}
+          className="absolute top-5 right-5 rounded-[var(--radius-md)] p-2 text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] hover:bg-[var(--color-bg-subtle)] transition-colors"
+          aria-label={t('toggle_theme')}
+        >
+          {isDark ? '☀️' : '🌙'}
+        </button>
+      </Tooltip>
 
       <AnimatePresence mode="wait">
-        {state === 'sent' ? (
+        {state === 'reset_sent' ? (
+          /* ── Password reset sent ── */
+          <motion.div
+            key="reset_sent"
+            initial={{ opacity: 0, scale: 0.96, y: 16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+            className="relative z-10 w-full max-w-sm text-center"
+          >
+            <motion.div
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.1, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              className="mx-auto mb-6 flex size-20 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--color-primary)]"
+              style={{ boxShadow: '0 0 0 8px color-mix(in oklch, var(--color-primary) 15%, transparent)' }}
+            >
+              <Key className="size-9 text-white" />
+            </motion.div>
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+              <h1 className="text-2xl font-semibold tracking-tight text-[var(--color-fg)]">Check your email</h1>
+              <p className="mt-2 text-sm text-[var(--color-fg-muted)] leading-relaxed">
+                We sent a password reset link to <strong>{email}</strong>
+              </p>
+            </motion.div>
+            <motion.button
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4 }}
+              onClick={() => { setState('idle'); setMode('password') }}
+              className="mt-8 inline-flex items-center gap-1.5 text-xs text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] transition-colors"
+            >
+              <RefreshCw className="size-3" />
+              Back to sign in
+            </motion.button>
+          </motion.div>
+        ) : state === 'sent' ? (
           /* ── Sent confirmation ── */
           <motion.div
             key="sent"
@@ -163,8 +215,12 @@ export default function LoginPage() {
           >
             {/* Logo */}
             <div className="mb-8 flex flex-col items-center gap-3">
-              <div className="flex size-12 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--color-primary)] shadow-lg">
-                <Zap className="size-6 text-white" />
+              <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-xl)] bg-[var(--color-primary)] shadow-lg p-1">
+                <img
+                  src="/favicon.png"
+                  alt="Turnoalcorte"
+                  className="size-full object-contain invert"
+                />
               </div>
               <div className="text-center">
                 <h1 className="text-xl font-semibold tracking-tight text-[var(--color-fg)]">Turnoalcorte</h1>
@@ -174,7 +230,7 @@ export default function LoginPage() {
 
             {/* Mode tabs */}
             <div className="mb-4 flex gap-1 rounded-[var(--radius-lg)] bg-[var(--color-bg-muted)] p-1 border border-[var(--color-border)]">
-              {([['magic', t('magic_link_tab'), Mail], ['password', t('password_tab'), Key]] as const).map(([m, label, Icon]) => (
+              {([['magic', t('magic_link_tab'), Mail], ['password', t('password_tab'), Key]] as const).filter(([m]) => mode !== 'forgot' || m === 'password').map(([m, label, Icon]) => (
                 <button
                   key={m}
                   type="button"
@@ -194,9 +250,11 @@ export default function LoginPage() {
 
             {/* Form card */}
             <div className="rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-bg)] p-7 shadow-[var(--shadow-xl)]">
-              <h2 className="mb-1.5 text-base font-semibold text-[var(--color-fg)]">{t('staff_sign_in')}</h2>
+              <h2 className="mb-1.5 text-base font-semibold text-[var(--color-fg)]">
+                {mode === 'forgot' ? 'Reset password' : t('staff_sign_in')}
+              </h2>
               <p className="mb-5 text-sm text-[var(--color-fg-muted)]">
-                {mode === 'magic' ? t('magic_prompt') : t('password_prompt')}
+                {mode === 'magic' ? t('magic_prompt') : mode === 'forgot' ? "Enter your email and we'll send you a reset link." : t('password_prompt')}
               </p>
 
               <form onSubmit={handleSubmit} className="space-y-3" noValidate>
@@ -227,9 +285,18 @@ export default function LoginPage() {
                       className="overflow-hidden"
                     >
                       <div className="space-y-1.5 pt-0.5">
-                        <label htmlFor="password" className="block text-xs font-medium text-[var(--color-fg-muted)]">
-                          {t('password_label')}
-                        </label>
+                        <div className="flex items-center justify-between">
+                          <label htmlFor="password" className="block text-xs font-medium text-[var(--color-fg-muted)]">
+                            {t('password_label')}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => { setMode('forgot'); reset() }}
+                            className="text-[10px] text-[var(--color-primary)] hover:underline"
+                          >
+                            Forgot password?
+                          </button>
+                        </div>
                         <Input
                           id="password"
                           type="password"
@@ -252,12 +319,21 @@ export default function LoginPage() {
                 <Button type="submit" className="w-full h-10 gap-2" loading={state === 'loading'}>
                   {state !== 'loading' && (
                     <>
-                      {mode === 'magic' ? t('send_link') : t('sign_in')}
+                      {mode === 'magic' ? t('send_link') : mode === 'forgot' ? 'Send reset link' : t('sign_in')}
                       <ArrowRight className="size-4" />
                     </>
                   )}
-                  {state === 'loading' && (mode === 'magic' ? t('sending') : t('signing_in'))}
+                  {state === 'loading' && (mode === 'magic' ? t('sending') : mode === 'forgot' ? 'Sending…' : t('signing_in'))}
                 </Button>
+                {mode === 'forgot' && (
+                  <button
+                    type="button"
+                    onClick={() => { setMode('password'); reset() }}
+                    className="w-full text-center text-xs text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] transition-colors pt-1"
+                  >
+                    ← Back to sign in
+                  </button>
+                )}
               </form>
             </div>
 

@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { User, Plus, Pencil, CalendarDays, CalendarOff, Trash2 } from 'lucide-react'
+import { User, Plus, Pencil, CalendarDays, CalendarOff, Trash2, Camera, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { keys } from '@/lib/query-keys'
 import type { Barber } from '@/types/database'
@@ -80,6 +80,10 @@ function BarberSheet({ open, onOpenChange, barber }: BarberSheetProps) {
   const { t } = useTranslation(['dashboard', 'common'])
   const qc = useQueryClient()
   const isEditing = !!barber
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } =
     useForm<FormValues>({
@@ -93,20 +97,55 @@ function BarberSheet({ open, onOpenChange, barber }: BarberSheetProps) {
         ? { name: barber.name, email: barber.email ?? '', bio: barber.bio ?? '', color: barber.color, active: barber.active }
         : { name: '', email: '', bio: '', color: '#6366f1', active: true }
       )
+      setPhotoPreview(barber?.photo_url ?? null)
+      setPhotoFile(null)
     }
   }, [open, barber, reset])
 
   const activeValue = watch('active')
   const colorValue = watch('color')
 
+  function handlePhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setPhotoFile(file)
+    setPhotoPreview(URL.createObjectURL(file))
+  }
+
+  function clearPhoto() {
+    setPhotoFile(null)
+    setPhotoPreview(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   const { mutate, isPending } = useMutation({
     mutationFn: async (values: FormValues) => {
+      let photoUrl = barber?.photo_url ?? null
+
+      // Upload new photo if selected
+      if (photoFile) {
+        setUploadingPhoto(true)
+        const ext = photoFile.name.split('.').pop() ?? 'jpg'
+        const path = `barbers/${Date.now()}.${ext}`
+        const { error: uploadError } = await supabase.storage
+          .from('barber-photos')
+          .upload(path, photoFile, { upsert: true })
+        setUploadingPhoto(false)
+        if (uploadError) throw uploadError
+        const { data: urlData } = supabase.storage.from('barber-photos').getPublicUrl(path)
+        photoUrl = urlData.publicUrl
+      } else if (photoPreview === null && barber?.photo_url) {
+        // Photo was cleared
+        photoUrl = null
+      }
+
       const payload = {
         name: values.name,
         email: values.email || null,
         bio: values.bio || null,
         color: values.color,
         active: values.active,
+        photo_url: photoUrl,
       }
       if (isEditing) {
         const { error } = await supabase.from('barbers').update(payload).eq('id', barber.id)
@@ -119,6 +158,8 @@ function BarberSheet({ open, onOpenChange, barber }: BarberSheetProps) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.barbers.all })
       reset()
+      setPhotoPreview(null)
+      setPhotoFile(null)
       onOpenChange(false)
     },
   })
@@ -141,6 +182,52 @@ function BarberSheet({ open, onOpenChange, barber }: BarberSheetProps) {
       />
       <SheetBody>
         <form id="barber-form" onSubmit={handleSubmit((v) => mutate(v))} className="space-y-5">
+
+          {/* Photo upload */}
+          <div className="flex items-center gap-4">
+            <div className="relative shrink-0">
+              <div
+                className="size-20 rounded-full overflow-hidden border-2 border-dashed border-[var(--color-border)] bg-[var(--color-bg-muted)] flex items-center justify-center"
+                style={photoPreview ? { borderStyle: 'solid', borderColor: colorValue } : undefined}
+              >
+                {photoPreview ? (
+                  <img src={photoPreview} alt="Preview" className="size-full object-cover" />
+                ) : (
+                  <User className="size-8 text-[var(--color-fg-muted)]" />
+                )}
+              </div>
+              {photoPreview && (
+                <button
+                  type="button"
+                  onClick={clearPhoto}
+                  className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-[var(--color-danger)] text-white shadow"
+                  aria-label="Remove photo"
+                >
+                  <X className="size-3" />
+                </button>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-[var(--color-fg-muted)]">Profile photo</p>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-medium text-[var(--color-fg)] hover:bg-[var(--color-bg-muted)] transition-colors"
+              >
+                <Camera className="size-3.5" />
+                {photoPreview ? 'Change photo' : 'Upload photo'}
+              </button>
+              <p className="text-[10px] text-[var(--color-fg-muted)]">JPG, PNG, WebP · max 5 MB</p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="sr-only"
+                onChange={handlePhotoSelect}
+              />
+            </div>
+          </div>
+
           <FormField label={t('barber_name_label')} error={errors.name?.message}>
             <Input
               {...register('name')}
@@ -209,8 +296,8 @@ function BarberSheet({ open, onOpenChange, barber }: BarberSheetProps) {
         <Button variant="secondary" onClick={handleClose} type="button">
           {t('common:cancel')}
         </Button>
-        <Button form="barber-form" type="submit" loading={isPending}>
-          {isEditing ? t('save_changes') : t('add_barber')}
+        <Button form="barber-form" type="submit" loading={isPending || uploadingPhoto}>
+          {uploadingPhoto ? 'Uploading…' : isEditing ? t('save_changes') : t('add_barber')}
         </Button>
       </SheetFooter>
     </Sheet>

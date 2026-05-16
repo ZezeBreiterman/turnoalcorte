@@ -1,7 +1,10 @@
-import { Search, Sun, Moon, Monitor } from 'lucide-react'
+import { Search, Sun, Moon, Monitor, LogOut, Settings, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTheme } from '@/hooks/useTheme'
 import { useUIStore } from '@/store/ui.store'
+import { useRouteLoaderData, useNavigate } from 'react-router-dom'
+import { signOut } from '@/lib/auth'
+import type { Profile } from '@/lib/auth'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,6 +23,14 @@ interface HeaderProps {
 export function Header({ title, actions }: HeaderProps) {
   const { theme, setTheme, isDark } = useTheme()
   const { toggleCommand } = useUIStore()
+  const navigate = useNavigate()
+  const loaderData = useRouteLoaderData('app-shell') as { profile: Profile } | null
+  const profile = loaderData?.profile
+
+  const handleSignOut = async () => {
+    await signOut()
+    navigate('/auth/login', { replace: true })
+  }
 
   return (
     <TooltipProvider>
@@ -88,6 +99,52 @@ export function Header({ title, actions }: HeaderProps) {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* User menu */}
+          {profile && (
+            <DropdownMenu>
+              <Tooltip content="Account" side="bottom">
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 gap-1.5 px-2 text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
+                    aria-label="Account menu"
+                  >
+                    <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-white text-[10px] font-semibold uppercase">
+                      {profile.email.charAt(0)}
+                    </div>
+                    <span className="hidden sm:block max-w-[140px] truncate text-xs">
+                      {profile.email}
+                    </span>
+                    <ChevronDown className="size-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="font-normal">
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-medium text-[var(--color-fg)] truncate">{profile.email}</p>
+                    <p className="text-[10px] text-[var(--color-fg-muted)] capitalize">{profile.role}</p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {profile.role === 'admin' && (
+                  <DropdownMenuItem onClick={() => navigate('/app/settings')}>
+                    <Settings className="size-4" />
+                    Settings
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={handleSignOut}
+                  className="text-[var(--color-danger)] focus:text-[var(--color-danger)]"
+                >
+                  <LogOut className="size-4" />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </header>
     </TooltipProvider>

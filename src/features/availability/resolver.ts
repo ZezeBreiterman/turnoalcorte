@@ -125,5 +125,7 @@ function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
 
 function toTimeOnDate(date: Date, timeStr: string): Date {
   const [h, m] = timeStr.split(':').map(Number)
-  return set(new Date(date), { hours: h, minutes: m, seconds: 0, milliseconds: 0 })
+  // date-fns `set` returns a new Date and does not mutate its input, so no
+  // defensive `new Date()` clone is needed here.
+  return set(date, { hours: h, minutes: m, seconds: 0, milliseconds: 0 })
 }

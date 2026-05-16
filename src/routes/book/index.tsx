@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
-import { motion, AnimatePresence, useMotionValue, useTransform, useSpring } from 'framer-motion'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
+import { motion, AnimatePresence, useMotionValue, useSpring } from 'framer-motion'
 import {
   Check,
   ChevronLeft,
@@ -15,7 +16,7 @@ import { format, addDays, getDay } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { resolveAvailableSlots } from '@/features/availability/resolver'
 import type { TimeSlot } from '@/features/availability/resolver'
-import type { Barber, Service } from '@/types/database'
+import type { Barber, Service, ShopConfig } from '@/types/database'
 import {
   now,
   startOfDay,
@@ -25,6 +26,8 @@ import {
   formatPrice,
 } from '@/lib/time'
 import { Input } from '@/components/ui/input'
+import { keys } from '@/lib/query-keys'
+import { Tooltip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -39,6 +42,8 @@ interface BookingState {
   name: string
   phone: string
   bookingCode?: string
+  holdId?: string
+  holdExpiresAt?: number // ms epoch
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -81,6 +86,16 @@ const stepVariants = {
 
 // ── Data fetchers ─────────────────────────────────────────────────────────────
 
+async function fetchShopConfig(): Promise<ShopConfig> {
+  const { data, error } = await supabase
+    .from('shop_config')
+    .select('*')
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  return (data ?? { id: '', name: 'Turnoalcorte', logo_url: null, address: null, phone: null, description: null, instagram: null }) as ShopConfig
+}
+
 async function fetchServices(): Promise<Service[]> {
   const { data, error } = await supabase
     .from('services')
@@ -103,18 +118,23 @@ async function fetchBarbers(): Promise<Barber[]> {
 
 async function fetchSlotsForDay(barberId: string, service: Service, date: Date): Promise<TimeSlot[]> {
   const dayOfWeek = getDay(date)
-  const [scheduleRes, timeOffRes, apptRes] = await Promise.all([
+  const [scheduleRes, timeOffRes, apptRes, holdRes] = await Promise.all([
     supabase.from('barber_schedules').select('day_of_week, start_time, end_time')
       .eq('barber_id', barberId).eq('day_of_week', dayOfWeek).maybeSingle(),
     supabase.from('time_off').select('start_at, end_at')
       .eq('barber_id', barberId)
       .lte('start_at', endOfDay(date).toISOString())
       .gte('end_at', startOfDay(date).toISOString()),
-    supabase.from('appointments').select('start_time, end_time')
+    // PII-free public view (RLS: anon has no direct access to `appointments`)
+    supabase.from('appointments_public').select('start_time, end_time')
       .eq('barber_id', barberId)
       .gte('start_time', startOfDay(date).toISOString())
-      .lte('start_time', endOfDay(date).toISOString())
-      .not('status', 'in', '(cancelled,no_show)'),
+      .lte('start_time', endOfDay(date).toISOString()),
+    // Active holds — slots someone else is mid-booking
+    supabase.from('slot_holds_public').select('start_time, end_time')
+      .eq('barber_id', barberId)
+      .gte('start_time', startOfDay(date).toISOString())
+      .lte('start_time', endOfDay(date).toISOString()),
   ])
   return resolveAvailableSlots({
     date,
@@ -123,12 +143,20 @@ async function fetchSlotsForDay(barberId: string, service: Service, date: Date):
     serviceBufferAfter: service.buffer_after_minutes ?? 10,
     schedule: scheduleRes.data ?? null,
     timeOff: timeOffRes.data ?? [],
-    booked: (apptRes.data ?? []).map((a) => ({
-      start_time: a.start_time,
-      end_time: a.end_time,
-      buffer_before_minutes: 0,
-      buffer_after_minutes: 10,
-    })),
+    booked: [
+      ...(apptRes.data ?? []).map((a) => ({
+        start_time: a.start_time,
+        end_time: a.end_time,
+        buffer_before_minutes: 0,
+        buffer_after_minutes: 10,
+      })),
+      ...(holdRes.data ?? []).map((h) => ({
+        start_time: h.start_time,
+        end_time: h.end_time,
+        buffer_before_minutes: 0,
+        buffer_after_minutes: 0,
+      })),
+    ],
   })
 }
 
@@ -168,7 +196,6 @@ function MagneticButton({
   return (
     <motion.button
       ref={ref}
-      style={{ x: springX, y: springY }}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       onClick={onClick}
@@ -182,6 +209,8 @@ function MagneticButton({
           : 'cursor-pointer',
       )}
       style={{
+        x: springX,
+        y: springY,
         background: disabled ? '#e5e7eb' : `linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,
         color: disabled ? '#9ca3af' : '#fff',
         boxShadow: disabled ? 'none' : `0 4px 24px -4px ${ACCENT}60`,
@@ -406,16 +435,17 @@ function StepBarber({ barbers, selected, onSelect }: {
 
 // ── Step: Date + Time ─────────────────────────────────────────────────────────
 
-function StepDateTime({ barber, service, selectedDate, selectedSlot, onDateSelect, onSlotSelect }: {
+function StepDateTime({ barber, service, selectedDate, selectedSlot, isHolding, onDateSelect, onSlotSelect }: {
   barber: Barber
   service: Service
   selectedDate?: Date
   selectedSlot?: TimeSlot
+  isHolding?: boolean
   onDateSelect: (d: Date) => void
   onSlotSelect: (s: TimeSlot) => void
 }) {
   const { data: slots = [], isLoading, isFetching } = useQuery({
-    queryKey: ['availability', barber.id, service.id, selectedDate?.toISOString()],
+    queryKey: keys.availability.slots(barber.id, service.id, selectedDate?.toISOString() ?? ''),
     queryFn: () => fetchSlotsForDay(barber.id, service, selectedDate!),
     enabled: !!selectedDate,
   })
@@ -466,10 +496,12 @@ function StepDateTime({ barber, service, selectedDate, selectedSlot, onDateSelec
                       variants={itemVariants}
                       type="button"
                       onClick={() => onSlotSelect(slot)}
+                      disabled={isHolding}
                       whileTap={{ scale: 0.93 }}
                       className={cn(
-                        'h-9 px-3.5 rounded-xl border text-xs font-semibold transition-all duration-150',
+                        'h-11 px-3.5 rounded-xl border text-xs font-semibold transition-all duration-150',
                         'focus-visible:outline-none tabular-nums font-[var(--font-mono)]',
+                        isHolding && 'opacity-50 cursor-not-allowed',
                         isSelected
                           ? 'text-white border-transparent'
                           : 'border-[var(--color-border)] text-[var(--color-fg)] hover:border-[var(--color-primary)]/60'
@@ -510,37 +542,45 @@ function StepInfo({ name, phone, onChangeName, onChangePhone, errors }: {
       className="space-y-5"
     >
       <motion.div variants={itemVariants} className="space-y-1.5">
-        <label className="block text-xs font-semibold text-[var(--color-fg-muted)] uppercase tracking-wider">
+        <label htmlFor="book-name" className="block text-xs font-semibold text-[var(--color-fg-muted)] uppercase tracking-wider">
           Nombre completo
         </label>
         <Input
+          id="book-name"
           value={name}
           onChange={(e) => onChangeName(e.target.value)}
           placeholder="Tu nombre completo"
           error={!!errors.name}
+          aria-invalid={!!errors.name}
+          aria-describedby={errors.name ? 'book-name-error' : undefined}
+          autoComplete="name"
           className="h-12 text-sm"
         />
         {errors.name && (
-          <p className="text-xs text-[var(--color-danger)]">{errors.name}</p>
+          <p id="book-name-error" role="alert" className="text-xs text-[var(--color-danger)]">{errors.name}</p>
         )}
       </motion.div>
 
       <motion.div variants={itemVariants} className="space-y-1.5">
-        <label className="block text-xs font-semibold text-[var(--color-fg-muted)] uppercase tracking-wider">
+        <label htmlFor="book-phone" className="block text-xs font-semibold text-[var(--color-fg-muted)] uppercase tracking-wider">
           Teléfono
         </label>
         <Input
+          id="book-phone"
           value={phone}
           onChange={(e) => onChangePhone(e.target.value)}
           placeholder="+54 11 1234-5678"
           type="tel"
           error={!!errors.phone}
+          aria-invalid={!!errors.phone}
+          aria-describedby={errors.phone ? 'book-phone-error' : 'book-phone-hint'}
+          autoComplete="tel"
           className="h-12 text-sm"
         />
         {errors.phone ? (
-          <p className="text-xs text-[var(--color-danger)]">{errors.phone}</p>
+          <p id="book-phone-error" role="alert" className="text-xs text-[var(--color-danger)]">{errors.phone}</p>
         ) : (
-          <p className="text-xs text-[var(--color-fg-subtle)]">
+          <p id="book-phone-hint" className="text-xs text-[var(--color-fg-subtle)]">
             Te enviamos el recordatorio por WhatsApp.
           </p>
         )}
@@ -551,7 +591,7 @@ function StepInfo({ name, phone, onChangeName, onChangePhone, errors }: {
 
 // ── Step: Done (Ticket) ───────────────────────────────────────────────────────
 
-function StepDone({ booking, code }: { booking: BookingState; code: string }) {
+function StepDone({ booking, code, shop }: { booking: BookingState; code: string; shop: ShopConfig }) {
   return (
     <div className="flex flex-col items-center gap-6 py-2">
       {/* Animated check */}
@@ -603,13 +643,17 @@ function StepDone({ booking, code }: { booking: BookingState; code: string }) {
           {/* Ticket header strip */}
           <div className="px-5 py-4 flex items-center gap-3"
             style={{ background: `linear-gradient(135deg, ${ACCENT}15, ${ACCENT}05)`, borderBottom: `1px solid ${ACCENT}20` }}>
-            <div className="size-8 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: ACCENT + '20' }}>
-              <Sparkles className="size-4" style={{ color: ACCENT }} />
-            </div>
+            {shop.logo_url ? (
+              <img src={shop.logo_url} alt={shop.name} className="size-8 rounded-xl object-cover shrink-0" />
+            ) : (
+              <div className="size-8 rounded-xl flex items-center justify-center"
+                style={{ backgroundColor: ACCENT + '20' }}>
+                <Sparkles className="size-4" style={{ color: ACCENT }} />
+              </div>
+            )}
             <div>
               <p className="text-xs font-bold uppercase tracking-widest" style={{ color: ACCENT }}>
-                Turnoalcorte
+                {shop.name}
               </p>
               <p className="text-[10px] text-[var(--color-fg-muted)]">Confirmación de reserva</p>
             </div>
@@ -659,10 +703,20 @@ function StepDone({ booking, code }: { booking: BookingState; code: string }) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.6 }}
-        className="flex items-center gap-1.5 text-xs text-[var(--color-fg-subtle)]"
+        className="flex flex-col items-center gap-1 text-xs text-[var(--color-fg-subtle)]"
       >
-        <MapPin className="size-3" />
-        Guardá este código como comprobante.
+        <span>Guardá este código como comprobante.</span>
+        {shop.address && (
+          <span className="flex items-center gap-1">
+            <MapPin className="size-3" />
+            {shop.address}
+          </span>
+        )}
+        {shop.phone && (
+          <a href={`tel:${shop.phone}`} className="hover:underline" style={{ color: ACCENT }}>
+            {shop.phone}
+          </a>
+        )}
       </motion.div>
     </div>
   )
@@ -680,7 +734,7 @@ function TicketRow({ icon, label, value }: { icon: React.ReactNode; label: strin
 
 // ── Left sidebar ──────────────────────────────────────────────────────────────
 
-function LeftSidebar({ step, booking }: { step: Step; booking: BookingState }) {
+function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingState; shop: ShopConfig }) {
   const stepIdx = STEPS.indexOf(step)
 
   return (
@@ -691,15 +745,30 @@ function LeftSidebar({ step, booking }: { step: Step; booking: BookingState }) {
       {/* Brand */}
       <div>
         <div className="flex items-center gap-2.5 mb-12">
-          <div
-            className="size-8 rounded-xl flex items-center justify-center"
-            style={{ backgroundColor: ACCENT }}
-          >
-            <Scissors className="size-4 text-white" strokeWidth={2} />
+          {shop.logo_url ? (
+            <img
+              src={shop.logo_url}
+              alt={shop.name}
+              className="size-9 rounded-xl object-cover shrink-0"
+            />
+          ) : (
+            <div
+              className="size-8 rounded-xl flex items-center justify-center shrink-0"
+              style={{ backgroundColor: ACCENT }}
+            >
+              <Scissors className="size-4 text-white" strokeWidth={2} />
+            </div>
+          )}
+          <div className="min-w-0">
+            <span className="text-sm font-bold tracking-tight block" style={{ color: SIDEBAR_TEXT }}>
+              {shop.name}
+            </span>
+            {shop.address && (
+              <span className="text-[10px] block truncate" style={{ color: SIDEBAR_MUTED }}>
+                {shop.address}
+              </span>
+            )}
           </div>
-          <span className="text-sm font-bold tracking-tight" style={{ color: SIDEBAR_TEXT }}>
-            Turnoalcorte
-          </span>
         </div>
 
         {/* Step progress (vertical) */}
@@ -708,7 +777,11 @@ function LeftSidebar({ step, booking }: { step: Step; booking: BookingState }) {
             const isActive = s === step
             const isDone = stepIdx > i
             return (
-              <div key={s} className="flex items-center gap-3 py-2">
+              <div
+                key={s}
+                className="flex items-center gap-3 py-2"
+                aria-current={isActive ? 'step' : undefined}
+              >
                 <div className="relative flex items-center justify-center size-5 shrink-0">
                   <AnimatePresence mode="wait">
                     {isDone ? (
@@ -843,47 +916,120 @@ export default function BookPage() {
   const [dir, setDir] = useState(1)
   const [booking, setBooking] = useState<BookingState>({ name: '', phone: '' })
   const [infoErrors, setInfoErrors] = useState<{ name?: string; phone?: string }>({})
+  const [holdRemaining, setHoldRemaining] = useState<number | null>(null) // seconds
 
-  const { data: services = [] } = useQuery({ queryKey: ['book-services'], queryFn: fetchServices })
-  const { data: barbers = [] } = useQuery({ queryKey: ['book-barbers'], queryFn: fetchBarbers })
+  const { data: shop = { id: '', name: 'Turnoalcorte', logo_url: null, address: null, phone: null, description: null, instagram: null } as ShopConfig } = useQuery({ queryKey: keys.shop.config, queryFn: fetchShopConfig })
+  const { data: services = [] } = useQuery({ queryKey: keys.bookPage.services, queryFn: fetchServices })
+  const { data: barbers = [] } = useQuery({ queryKey: keys.bookPage.barbers, queryFn: fetchBarbers })
+
+  const queryClient = useQueryClient()
 
   const { mutate: confirm, isPending } = useMutation({
     mutationFn: async () => {
       if (!booking.service || !booking.barber || !booking.slot) throw new Error('Missing data')
-      const { data: existing } = await supabase
-        .from('clients').select('id').eq('phone', booking.phone).maybeSingle()
-      let clientId: string
-      if (existing?.id) {
-        clientId = existing.id
-      } else {
-        const { data: newClient, error } = await supabase
-          .from('clients').insert({ name: booking.name, phone: booking.phone }).select('id').single()
-        if (error) throw error
-        clientId = newClient.id
-      }
-      const { data: appt, error: apptErr } = await supabase
-        .from('appointments')
-        .insert({
-          client_id: clientId,
-          barber_id: booking.barber.id,
-          service_id: booking.service.id,
-          start_time: booking.slot.startAt.toISOString(),
-          end_time: booking.slot.endAt.toISOString(),
-          status: 'confirmed',
-          price_charged: booking.service.price,
-        })
-        .select('id')
-        .single()
-      if (apptErr) throw apptErr
-      return appt.id as string
+      // Secure server-side booking: client upsert + appointment insert + price
+      // are all done in the book_appointment SECURITY DEFINER RPC. Anon has no
+      // direct access to the clients/appointments tables (RLS).
+      const { data, error } = await supabase.rpc('book_appointment', {
+        p_barber_id: booking.barber.id,
+        p_service_id: booking.service.id,
+        p_start: booking.slot.startAt.toISOString(),
+        p_end: booking.slot.endAt.toISOString(),
+        p_name: booking.name,
+        p_phone: booking.phone,
+      })
+      if (error) throw error
+      return data as string
     },
     onSuccess: (id: string) => {
       const code = id.replace(/-/g, '').slice(-6)
-      setBooking((b) => ({ ...b, bookingCode: code }))
+      // Clearing holdId triggers the release effect below (single source of truth).
+      setBooking((b) => ({ ...b, bookingCode: code, holdId: undefined, holdExpiresAt: undefined }))
       setDir(1)
       setStep('done')
     },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('slot_taken')) {
+        // Someone grabbed this slot between availability check and confirm.
+        toast.error('Ese turno se acaba de ocupar. Elegí otro horario.')
+        queryClient.invalidateQueries({ queryKey: keys.availability.all })
+        setBooking((b) => ({ ...b, slot: undefined, holdId: undefined, holdExpiresAt: undefined }))
+        setDir(-1)
+        setStep('datetime')
+      } else if (msg.includes('service_unavailable')) {
+        toast.error('Ese servicio ya no está disponible.')
+      } else {
+        toast.error('No pudimos confirmar el turno. Intentá de nuevo.')
+      }
+    },
   })
+
+  const releaseHold = useCallback((holdId?: string) => {
+    if (holdId) void supabase.rpc('release_slot', { p_hold_id: holdId })
+  }, [])
+
+  // Select a slot → place a 10-min server-side hold so nobody else can take it
+  // while the customer fills the form.
+  const { mutate: holdSlot, isPending: isHolding } = useMutation({
+    mutationFn: async (slot: TimeSlot) => {
+      if (!booking.barber) throw new Error('Missing barber')
+      const { data, error } = await supabase.rpc('hold_slot', {
+        p_barber_id: booking.barber.id,
+        p_start: slot.startAt.toISOString(),
+        p_end: slot.endAt.toISOString(),
+      })
+      if (error) throw error
+      const row = Array.isArray(data) ? data[0] : data
+      return { slot, holdId: row.hold_id as string, expiresAt: new Date(row.expires_at).getTime() }
+    },
+    onSuccess: ({ slot, holdId, expiresAt }) => {
+      // Switching holdId auto-releases the previous hold via the effect below.
+      setBooking((b) => ({ ...b, slot, holdId, holdExpiresAt: expiresAt }))
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('slot_taken')) {
+        toast.error('Ese horario se acaba de ocupar. Probá con otro.')
+        queryClient.invalidateQueries({ queryKey: keys.availability.all })
+      } else {
+        toast.error('No pudimos reservar el horario. Intentá de nuevo.')
+      }
+      setBooking((b) => ({ ...b, slot: undefined, holdId: undefined, holdExpiresAt: undefined }))
+    },
+  })
+
+  // Countdown: tick every second; when the hold expires, drop the slot and
+  // bounce back to slot selection.
+  useEffect(() => {
+    if (!booking.holdExpiresAt || step === 'done') {
+      setHoldRemaining(null)
+      return
+    }
+    const tick = () => {
+      const secs = Math.round((booking.holdExpiresAt! - Date.now()) / 1000)
+      if (secs <= 0) {
+        setHoldRemaining(0)
+        // Clearing holdId releases the expired hold via the effect below.
+        setBooking((b) => ({ ...b, slot: undefined, holdId: undefined, holdExpiresAt: undefined }))
+        toast.error('La reserva del horario expiró. Elegí otro turno.')
+        setDir(-1)
+        setStep('datetime')
+      } else {
+        setHoldRemaining(secs)
+      }
+    }
+    tick()
+    const iv = setInterval(tick, 1000)
+    return () => clearInterval(iv)
+  }, [booking.holdExpiresAt, step])
+
+  // Single source of truth for releasing a hold: whenever holdId stops
+  // pointing at a hold (slot change, expiry, confirm, or unmount), free it.
+  useEffect(() => {
+    const id = booking.holdId
+    return () => { if (id) releaseHold(id) }
+  }, [booking.holdId, releaseHold])
 
   function navigate(to: Step, direction: number) {
     setDir(direction)
@@ -927,7 +1073,7 @@ export default function BookPage() {
       <div className="min-h-[100dvh] grid grid-cols-1 md:grid-cols-[2fr_3fr]">
 
         {/* Left: dark sidebar */}
-        <LeftSidebar step={step} booking={booking} />
+        <LeftSidebar step={step} booking={booking} shop={shop} />
 
         {/* Right: step content */}
         <div className="flex flex-col min-h-[100dvh]">
@@ -935,13 +1081,22 @@ export default function BookPage() {
           {/* Mobile header */}
           <div className="md:hidden flex items-center gap-3 px-5 pt-6 pb-2"
             style={{ borderBottom: '1px solid var(--color-border)' }}>
-            <div
-              className="size-7 rounded-xl flex items-center justify-center shrink-0"
-              style={{ backgroundColor: ACCENT }}
-            >
-              <Scissors className="size-3.5 text-white" strokeWidth={2} />
+            {shop.logo_url ? (
+              <img src={shop.logo_url} alt={shop.name} className="size-7 rounded-xl object-cover shrink-0" />
+            ) : (
+              <div
+                className="size-7 rounded-xl flex items-center justify-center shrink-0"
+                style={{ backgroundColor: ACCENT }}
+              >
+                <Scissors className="size-3.5 text-white" strokeWidth={2} />
+              </div>
+            )}
+            <div className="min-w-0">
+              <span className="text-sm font-bold text-[var(--color-fg)] tracking-tight block">{shop.name}</span>
+              {shop.address && (
+                <span className="text-[10px] text-[var(--color-fg-muted)] block truncate">{shop.address}</span>
+              )}
             </div>
-            <span className="text-sm font-bold text-[var(--color-fg)] tracking-tight">Turnoalcorte</span>
           </div>
 
           {/* Step area */}
@@ -953,17 +1108,25 @@ export default function BookPage() {
                 {/* Back + step label row */}
                 <div className="flex items-center gap-3 mb-5">
                   {step !== 'service' && (
-                    <button
-                      type="button"
-                      onClick={goBack}
-                      className="size-9 flex items-center justify-center rounded-xl border border-[var(--color-border)] text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-subtle)] transition-colors focus-visible:outline-none focus-visible:ring-2"
-                      style={{ '--tw-ring-color': ACCENT } as React.CSSProperties}
-                      aria-label="Volver"
-                    >
-                      <ChevronLeft className="size-4" />
-                    </button>
+                    <Tooltip content="Volver" side="bottom">
+                      <button
+                        type="button"
+                        onClick={goBack}
+                        className="size-9 flex items-center justify-center rounded-xl border border-[var(--color-border)] text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-subtle)] transition-colors focus-visible:outline-none focus-visible:ring-2"
+                        style={{ '--tw-ring-color': ACCENT } as React.CSSProperties}
+                        aria-label="Volver"
+                      >
+                        <ChevronLeft className="size-4" />
+                      </button>
+                    </Tooltip>
                   )}
-                  <span className="text-xs font-bold uppercase tracking-widest" style={{ color: ACCENT }}>
+                  <span
+                    className="text-xs font-bold uppercase tracking-widest"
+                    style={{ color: ACCENT }}
+                    role="status"
+                    aria-live="polite"
+                    aria-label={`Paso ${stepIdx + 1} de ${STEPS.length - 1}`}
+                  >
                     {stepIdx + 1} / {STEPS.length - 1}
                   </span>
                 </div>
@@ -1010,14 +1173,14 @@ export default function BookPage() {
                   <StepService
                     services={services}
                     selected={booking.service}
-                    onSelect={(s) => setBooking((b) => ({ ...b, service: s, barber: undefined, slot: undefined, date: undefined }))}
+                    onSelect={(s) => setBooking((b) => ({ ...b, service: s, barber: undefined, slot: undefined, date: undefined, holdId: undefined, holdExpiresAt: undefined }))}
                   />
                 )}
                 {step === 'barber' && (
                   <StepBarber
                     barbers={barbers}
                     selected={booking.barber}
-                    onSelect={(b) => setBooking((prev) => ({ ...prev, barber: b, slot: undefined, date: undefined }))}
+                    onSelect={(b) => setBooking((prev) => ({ ...prev, barber: b, slot: undefined, date: undefined, holdId: undefined, holdExpiresAt: undefined }))}
                   />
                 )}
                 {step === 'datetime' && booking.barber && booking.service && (
@@ -1026,8 +1189,9 @@ export default function BookPage() {
                     service={booking.service}
                     selectedDate={booking.date}
                     selectedSlot={booking.slot}
-                    onDateSelect={(d) => setBooking((b) => ({ ...b, date: d, slot: undefined }))}
-                    onSlotSelect={(s) => setBooking((b) => ({ ...b, slot: s }))}
+                    isHolding={isHolding}
+                    onDateSelect={(d) => setBooking((b) => ({ ...b, date: d, slot: undefined, holdId: undefined, holdExpiresAt: undefined }))}
+                    onSlotSelect={(s) => holdSlot(s)}
                   />
                 )}
                 {step === 'info' && (
@@ -1040,7 +1204,7 @@ export default function BookPage() {
                   />
                 )}
                 {step === 'done' && booking.bookingCode && (
-                  <StepDone booking={booking} code={booking.bookingCode} />
+                  <StepDone booking={booking} code={booking.bookingCode} shop={shop} />
                 )}
               </motion.div>
             </AnimatePresence>
@@ -1048,6 +1212,24 @@ export default function BookPage() {
 
           {/* Sticky CTA */}
           <div className="px-5 md:px-10 pb-8 pt-4 border-t border-[var(--color-border)] bg-[var(--color-bg)]">
+            <AnimatePresence>
+              {holdRemaining != null && holdRemaining > 0 && (step === 'datetime' || step === 'info') && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 6 }}
+                  className="mb-3 flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-subtle)] py-2 text-xs"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Clock className="size-3.5" style={{ color: ACCENT }} />
+                  <span className="text-[var(--color-fg-muted)]">Horario reservado ·</span>
+                  <span className="font-semibold tabular-nums font-[var(--font-mono)]" style={{ color: ACCENT }}>
+                    {Math.floor(holdRemaining / 60)}:{String(holdRemaining % 60).padStart(2, '0')}
+                  </span>
+                </motion.div>
+              )}
+            </AnimatePresence>
             {step !== 'done' ? (
               <MagneticButton onClick={handleNext} disabled={!canNext} loading={isPending}>
                 {step === 'info' ? 'Confirmar turno' : (

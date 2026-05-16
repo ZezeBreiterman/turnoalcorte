@@ -1,3 +1,13 @@
+export interface ShopConfig {
+  id: string
+  name: string
+  logo_url: string | null
+  address: string | null
+  phone: string | null
+  description: string | null
+  instagram: string | null
+}
+
 export type AppointmentStatus =
   | 'pending'
   | 'confirmed'

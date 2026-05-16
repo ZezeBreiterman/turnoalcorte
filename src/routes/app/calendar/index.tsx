@@ -45,6 +45,7 @@ import type { Appointment, Barber, BarberSchedule, TimeOff } from '@/types/datab
 import { PageShell } from '@/components/layout/PageShell'
 import { Button } from '@/components/ui/button'
 import { NamedAvatar } from '@/components/ui/avatar'
+import { Tooltip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AppointmentDetailSheet } from '@/components/appointments/AppointmentDetailSheet'
 
@@ -154,6 +155,27 @@ function NowLine() {
     >
       <div className="size-2 rounded-full bg-[var(--color-primary)] shrink-0 -ml-1" />
       <div className="flex-1 h-px bg-[var(--color-primary)]" />
+    </div>
+  )
+}
+
+// ── Loading skeleton ──────────────────────────────────────────────────────────
+
+function CalendarSkeleton({ columns = 5 }: { columns?: number }) {
+  return (
+    <div className="flex h-full gap-2 p-3" aria-hidden="true">
+      {Array.from({ length: columns }).map((_, col) => (
+        <div key={col} className="flex-1 space-y-2">
+          <div className="h-6 rounded-[var(--radius-md)] bg-[var(--color-bg-subtle)] animate-pulse" />
+          {Array.from({ length: 5 }).map((_, row) => (
+            <div
+              key={row}
+              className="rounded-[var(--radius-md)] bg-[var(--color-bg-subtle)] animate-pulse"
+              style={{ height: 40 + ((col + row) % 3) * 28, opacity: 1 - row * 0.12 }}
+            />
+          ))}
+        </div>
+      ))}
     </div>
   )
 }
@@ -951,8 +973,7 @@ export default function CalendarPage() {
     enabled: view === 'month',
   })
 
-  const appointments = view === 'month' ? monthAppointments : view === 'week' ? weekAppointments : dayAppointments
-  const isLoading    = view === 'month' ? isMonthLoading   : view === 'week' ? isWeekLoading   : isDayLoading
+  const isLoading = view === 'month' ? isMonthLoading : view === 'week' ? isWeekLoading : isDayLoading
 
   // Day of week: 0=Sun … 6=Sat (matches barber_schedules.day_of_week)
   const dayOfWeek = date.getDay()
@@ -1216,25 +1237,29 @@ export default function CalendarPage() {
               {t('common:today')}
             </Button>
             <div className="flex items-center">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={handlePrev}
-                aria-label={view === 'month' ? 'Previous month' : 'Previous day'}
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
+              <Tooltip content={view === 'month' ? 'Mes anterior' : view === 'week' ? 'Semana anterior' : 'Día anterior'}>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={handlePrev}
+                  aria-label={view === 'month' ? 'Previous month' : 'Previous day'}
+                >
+                  <ChevronLeft className="size-4" />
+                </Button>
+              </Tooltip>
               <span className="px-2 text-sm font-medium text-[var(--color-fg)] min-w-[160px] text-center">
                 {dayLabel}
               </span>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={handleNext}
-                aria-label={view === 'month' ? 'Next month' : 'Next day'}
-              >
-                <ChevronRight className="size-4" />
-              </Button>
+              <Tooltip content={view === 'month' ? 'Mes siguiente' : view === 'week' ? 'Semana siguiente' : 'Día siguiente'}>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={handleNext}
+                  aria-label={view === 'month' ? 'Next month' : 'Next day'}
+                >
+                  <ChevronRight className="size-4" />
+                </Button>
+              </Tooltip>
             </div>
           </div>
         </div>
@@ -1261,9 +1286,7 @@ export default function CalendarPage() {
                 className="flex-1 overflow-hidden"
               >
                 {isLoading ? (
-                  <div className="flex h-full items-center justify-center">
-                    <p className="text-sm text-[var(--color-fg-muted)]">{t('calendar:loading')}</p>
-                  </div>
+                  <CalendarSkeleton columns={7} />
                 ) : (
                   <MonthView
                     monthDate={date}
@@ -1284,9 +1307,7 @@ export default function CalendarPage() {
                 className="flex-1 overflow-hidden"
               >
                 {isLoading ? (
-                  <div className="flex h-full items-center justify-center">
-                    <p className="text-sm text-[var(--color-fg-muted)]">{t('calendar:loading')}</p>
-                  </div>
+                  <CalendarSkeleton columns={7} />
                 ) : (
                   <WeekView
                     weekStart={weekStart}

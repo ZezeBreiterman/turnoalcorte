@@ -1,6 +1,8 @@
 {
   "app_name": "Turnoalcorte",
   "loading": "Cargando...",
+  "sign_out": "Cerrar sesión",
+  "expand": "Expandir",
   "save": "Guardar",
   "cancel": "Cancelar",
   "delete": "Eliminar",

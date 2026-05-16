@@ -10,7 +10,6 @@ import {
   Calendar,
   Clock,
   Scissors,
-  User,
   Phone,
   DollarSign,
   FileText,
@@ -29,7 +28,6 @@ import { keys } from '@/lib/query-keys'
 import type { Appointment, AppointmentStatus, Barber, Service } from '@/types/database'
 import {
   Sheet,
-  SheetHeader,
   SheetBody,
   SheetFooter,
   FormField,
@@ -117,7 +115,7 @@ const editSchema = z.object({
   date: z.string().min(1, 'Fecha requerida'),
   start_time: z.string().min(1, 'Hora requerida'),
   notes: z.string(),
-  price_charged: z.coerce.number().min(0, 'El precio debe ser 0 o mayor'),
+  price_charged: z.number().min(0, 'El precio debe ser 0 o mayor'),
 })
 
 type EditFormValues = z.infer<typeof editSchema>
@@ -321,7 +319,7 @@ function EditForm({ appointment, onCancel, onSaved }: EditFormProps) {
           min="0"
           placeholder="0.00"
           error={!!errors.price_charged}
-          {...register('price_charged')}
+          {...register('price_charged', { valueAsNumber: true })}
         />
       </FormField>
 
@@ -393,7 +391,7 @@ export function AppointmentDetailSheet({
     },
     onSuccess: (_, newStatus) => {
       qc.invalidateQueries({ queryKey: keys.appointments.all })
-      toast.success(t(`common:status.${newStatus}` as Parameters<typeof t>[0]))
+      toast.success((t as (k: string) => string)(`common:status.${newStatus}`))
       onOpenChange(false)
     },
     onError: () => toast.error(t('common:error_generic')),
@@ -545,7 +543,7 @@ export function AppointmentDetailSheet({
                         className="gap-1.5"
                       >
                         {action.icon}
-                        {t(`dashboard:${action.labelKey}` as Parameters<typeof t>[0])}
+                        {(t as (k: string) => string)(`dashboard:${action.labelKey}`)}
                       </Button>
                     ))}
                   </div>

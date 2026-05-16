@@ -88,6 +88,7 @@ export const router = createBrowserRouter([
   {
     path: '/book',
     element: wrap(BookPage),
+    errorElement: <RouteErrorBoundary />,
   },
 
   // Auth routes

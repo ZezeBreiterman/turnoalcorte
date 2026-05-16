@@ -42,6 +42,10 @@ export const keys = {
   shop: {
     config: ['shop', 'config'] as const,
   },
+  bookPage: {
+    services: ['book', 'services'] as const,
+    barbers: ['book', 'barbers'] as const,
+  },
   discounts: {
     all: ['discounts'] as const,
     byService: (serviceId: string) => ['discounts', 'service', serviceId] as const,

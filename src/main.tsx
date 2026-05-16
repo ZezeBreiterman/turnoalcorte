@@ -9,6 +9,7 @@ import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { router } from './router'
 import { captureError } from './lib/sentry'
 import './index.css'
@@ -49,7 +50,9 @@ createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <Sentry.ErrorBoundary fallback={<AppCrashFallback />} showDialog>
+        <TooltipProvider delayDuration={300}>
         <RouterProvider router={router} />
+        </TooltipProvider>
         <Toaster
           position="bottom-right"
           toastOptions={{

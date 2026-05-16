@@ -39,14 +39,6 @@ function groupByHour(slots: string[]): Map<string, string[]> {
 
 const HOUR_GROUPS = groupByHour(ALL_SLOTS)
 
-function formatSlotDisplay(slot: string): string {
-  const [hStr, mStr] = slot.split(':')
-  const h = parseInt(hStr, 10)
-  const suffix = h >= 12 ? 'PM' : 'AM'
-  const h12 = h % 12 === 0 ? 12 : h % 12
-  return `${h12}:${mStr} ${suffix}`
-}
-
 function formatTriggerDisplay(slot: string): string {
   if (!slot) return 'Seleccionar hora'
   const [hStr, mStr] = slot.split(':')

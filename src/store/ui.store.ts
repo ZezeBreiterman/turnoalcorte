@@ -18,6 +18,8 @@ interface UIState {
   tutorialOpen: boolean
   tutorialStep: number
   tutorialCompleted: boolean
+  // Command palette recently-used (most-recent first, max 5)
+  recentCommands: string[]
   // Actions
   setTheme: (theme: Theme) => void
   setDensity: (density: Density) => void
@@ -31,6 +33,7 @@ interface UIState {
   setTutorialOpen: (v: boolean) => void
   setTutorialStep: (n: number) => void
   setTutorialCompleted: (v: boolean) => void
+  pushRecentCommand: (id: string) => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -46,6 +49,7 @@ export const useUIStore = create<UIState>()(
       tutorialOpen: false,
       tutorialStep: 0,
       tutorialCompleted: false,
+      recentCommands: [],
 
       setTheme: (theme) => set({ theme }),
       setDensity: (density) => set({ density }),
@@ -58,6 +62,9 @@ export const useUIStore = create<UIState>()(
       setTutorialOpen: (tutorialOpen) => set({ tutorialOpen }),
       setTutorialStep: (tutorialStep) => set({ tutorialStep }),
       setTutorialCompleted: (tutorialCompleted) => set({ tutorialCompleted }),
+      pushRecentCommand: (id) => set((s) => ({
+        recentCommands: [id, ...s.recentCommands.filter((c) => c !== id)].slice(0, 5),
+      })),
     }),
     {
       name: 'turnoalcorte-ui',
@@ -68,6 +75,7 @@ export const useUIStore = create<UIState>()(
         sidebarCollapsed: s.sidebarCollapsed,
         calendarView: s.calendarView,
         tutorialCompleted: s.tutorialCompleted,
+        recentCommands: s.recentCommands,
       }),
     }
   )

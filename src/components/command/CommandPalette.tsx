@@ -14,24 +14,26 @@ import {
   Search,
   Plus,
   Phone,
+  Languages,
+  History,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useUIStore } from '@/store/ui.store'
 import { useTheme } from '@/hooks/useTheme'
 import { cn } from '@/lib/utils'
 import type { Client } from '@/types/database'
 
-// ── Nav commands ──────────────────────────────────────────────────────────────
+// ── Command registry ──────────────────────────────────────────────────────────
 
-const NAV_COMMANDS = [
-  { label: 'Today',     icon: CalendarClock, to: '/app/today' },
-  { label: 'Calendar',  icon: Calendar,      to: '/app/calendar' },
-  { label: 'Clients',   icon: Users,         to: '/app/clients' },
-  { label: 'Services',  icon: Scissors,      to: '/app/services' },
-  { label: 'Barbers',   icon: User,          to: '/app/barbers' },
-  { label: 'Analytics', icon: BarChart3,     to: '/app/analytics' },
-  { label: 'Settings',  icon: Settings,      to: '/app/settings' },
-]
+interface Cmd {
+  id: string
+  label: string
+  icon: LucideIcon
+  group: 'Actions' | 'Navigation' | 'Appearance'
+  keywords?: string
+  run: () => void
+}
 
 // ── Item style ────────────────────────────────────────────────────────────────
 
@@ -52,12 +54,34 @@ const groupCls = cn(
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function CommandPalette() {
-  const { commandOpen, setCommandOpen } = useUIStore()
+  const { commandOpen, setCommandOpen, recentCommands, pushRecentCommand, language, setLanguage } = useUIStore()
   const { isDark, setTheme } = useTheme()
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [clients, setClients] = useState<Client[]>([])
   const [searchingClients, setSearchingClients] = useState(false)
+
+  const commands: Cmd[] = [
+    { id: 'new-appointment', label: 'New appointment', icon: Plus, group: 'Actions', keywords: 'add create turno', run: () => navigate('/app/today?new=1') },
+    { id: 'nav-today',     label: 'Today',     icon: CalendarClock, group: 'Navigation', run: () => navigate('/app/today') },
+    { id: 'nav-calendar',  label: 'Calendar',  icon: Calendar,      group: 'Navigation', run: () => navigate('/app/calendar') },
+    { id: 'nav-clients',   label: 'Clients',   icon: Users,         group: 'Navigation', run: () => navigate('/app/clients') },
+    { id: 'nav-services',  label: 'Services',  icon: Scissors,      group: 'Navigation', run: () => navigate('/app/services') },
+    { id: 'nav-barbers',   label: 'Barbers',   icon: User,          group: 'Navigation', run: () => navigate('/app/barbers') },
+    { id: 'nav-analytics', label: 'Analytics', icon: BarChart3,     group: 'Navigation', run: () => navigate('/app/analytics') },
+    { id: 'nav-settings',  label: 'Settings',  icon: Settings,      group: 'Navigation', run: () => navigate('/app/settings') },
+    { id: 'toggle-theme', label: `Switch to ${isDark ? 'Light' : 'Dark'} mode`, icon: isDark ? Sun : Moon, group: 'Appearance', keywords: 'dark light theme', run: () => setTheme(isDark ? 'light' : 'dark') },
+    { id: 'toggle-language', label: `Switch to ${language === 'es' ? 'English' : 'Español'}`, icon: Languages, group: 'Appearance', keywords: 'language idioma', run: () => setLanguage(language === 'es' ? 'en' : 'es') },
+  ]
+
+  const byId = (id: string) => commands.find((c) => c.id === id)
+  const matches = (c: Cmd) =>
+    !search ||
+    c.label.toLowerCase().includes(search.toLowerCase()) ||
+    (c.keywords ?? '').toLowerCase().includes(search.toLowerCase())
+
+  const recent = recentCommands.map(byId).filter((c): c is Cmd => !!c && matches(c))
+  const runCmd = (c: Cmd) => { pushRecentCommand(c.id); c.run(); setCommandOpen(false) }
 
   // Global keyboard shortcut
   useEffect(() => {
@@ -101,9 +125,9 @@ export function CommandPalette() {
     return () => clearTimeout(timer)
   }, [search, searchClients])
 
-  const runAndClose = (fn: () => void) => { fn(); setCommandOpen(false) }
-
   if (!commandOpen) return null
+
+  const groups: Cmd['group'][] = ['Actions', 'Navigation', 'Appearance']
 
   return (
     <div
@@ -144,17 +168,17 @@ export function CommandPalette() {
               {searchingClients ? 'Searching…' : 'No results found.'}
             </Command.Empty>
 
-            {/* Actions */}
-            <Command.Group heading="Actions" className={groupCls}>
-              <Command.Item
-                value="new appointment add"
-                onSelect={() => runAndClose(() => navigate('/app/today?new=1'))}
-                className={itemCls}
-              >
-                <Plus className="size-4 text-[var(--color-primary)]" />
-                New appointment
-              </Command.Item>
-            </Command.Group>
+            {/* Recently used */}
+            {!search && recent.length > 0 && (
+              <Command.Group heading="Recent" className={groupCls}>
+                {recent.map((c) => (
+                  <Command.Item key={`recent-${c.id}`} value={`recent-${c.id}`} onSelect={() => runCmd(c)} className={itemCls}>
+                    <History className="size-4 text-[var(--color-fg-muted)]" />
+                    {c.label}
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            )}
 
             {/* Client search results */}
             {clients.length > 0 && (
@@ -163,7 +187,7 @@ export function CommandPalette() {
                   <Command.Item
                     key={c.id}
                     value={`client-${c.id}`}
-                    onSelect={() => runAndClose(() => navigate('/app/clients'))}
+                    onSelect={() => { setCommandOpen(false); navigate('/app/clients') }}
                     className={itemCls}
                   >
                     <Users className="size-4 text-[var(--color-fg-muted)] shrink-0" />
@@ -181,37 +205,21 @@ export function CommandPalette() {
               </Command.Group>
             )}
 
-            {/* Navigation */}
-            <Command.Group heading="Navigation" className={groupCls}>
-              {NAV_COMMANDS.filter((cmd) =>
-                !search || cmd.label.toLowerCase().includes(search.toLowerCase())
-              ).map(({ label, icon: Icon, to }) => (
-                <Command.Item
-                  key={to}
-                  value={label}
-                  onSelect={() => runAndClose(() => navigate(to))}
-                  className={itemCls}
-                >
-                  <Icon className="size-4 text-[var(--color-fg-muted)]" />
-                  {label}
-                </Command.Item>
-              ))}
-            </Command.Group>
-
-            {/* Appearance */}
-            <Command.Group heading="Appearance" className={groupCls}>
-              <Command.Item
-                value="toggle theme dark light mode"
-                onSelect={() => runAndClose(() => setTheme(isDark ? 'light' : 'dark'))}
-                className={itemCls}
-              >
-                {isDark
-                  ? <Sun className="size-4 text-[var(--color-fg-muted)]" />
-                  : <Moon className="size-4 text-[var(--color-fg-muted)]" />
-                }
-                Switch to {isDark ? 'Light' : 'Dark'} mode
-              </Command.Item>
-            </Command.Group>
+            {/* Grouped commands */}
+            {groups.map((g) => {
+              const items = commands.filter((c) => c.group === g && matches(c))
+              if (items.length === 0) return null
+              return (
+                <Command.Group key={g} heading={g} className={groupCls}>
+                  {items.map((c) => (
+                    <Command.Item key={c.id} value={`${c.id} ${c.label} ${c.keywords ?? ''}`} onSelect={() => runCmd(c)} className={itemCls}>
+                      <c.icon className={cn('size-4', c.group === 'Actions' ? 'text-[var(--color-primary)]' : 'text-[var(--color-fg-muted)]')} />
+                      {c.label}
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )
+            })}
           </Command.List>
         </Command>
       </div>

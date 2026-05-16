@@ -10,13 +10,14 @@ Barber shop scheduling platform. Customers book in under 25 seconds; owners mana
 
 ## Features
 
-- **Public booking flow** — no account required. Customer picks service, barber, and date; available slots are computed in real time and the booking is confirmed immediately.
+- **Public booking flow** — no account required. Customer picks service, barber, and date; available slots are computed in real time. The booking itself is written through a `SECURITY DEFINER` Postgres function (`book_appointment`) — the anonymous client never touches the `clients` or `appointments` tables directly, and the price is read server-side so it cannot be spoofed.
 - **Barber-column day calendar** — each barber gets a vertical lane. Appointments can be dragged to reschedule within or across barbers.
 - **Real-time updates** — Supabase Realtime pushes appointment changes to every connected client instantly. Two staff members can work the same view without stepping on each other.
 - **Command palette** — `Cmd+K` / `Ctrl+K` opens a full-text command palette (cmdk) for quick navigation and actions without touching the mouse.
 - **Status workflow** — appointments move through `pending → confirmed → checked-in → in-progress → completed`. Each transition is a deliberate action, not an automatic timer.
 - **Availability resolver** — a pure function that computes 15-minute slot candidates for a given barber, service, and date. Buffer minutes before and after each appointment are first-class inputs; no slot is offered if the padded window would overlap an existing booking or a blocked time range.
-- **Role-based access** — barbers see today's schedule and their client list; admins additionally access analytics, barber management, service configuration, and settings.
+- **Role-based access** — barbers see today's schedule and their client list; admins additionally access analytics, barber management, service configuration, and settings. Enforced at three layers: route loaders, a centralized `lib/can.ts` permission matrix driving the UI, and Postgres RLS policies (the real boundary).
+- **No double-booking** — a Postgres `EXCLUDE` constraint makes overlapping appointments for the same barber impossible at the database level, closing the check-then-write race; the UI surfaces a friendly "slot just taken" recovery if two customers race the same time.
 - **Analytics** — revenue and appointment volume charts (Recharts) scoped to any date range.
 
 ---
@@ -56,6 +57,19 @@ Barber shop scheduling platform. Customers book in under 25 seconds; owners mana
 
 `src/features/availability/resolver.ts` is a pure function with no side effects and no Supabase calls. It receives schedule rows, time-off blocks, and booked appointments as plain objects, and returns an array of `{ startAt, endAt }` slots. Buffer math is applied symmetrically: the candidate window is `bufferBefore + serviceDuration + bufferAfter`; a slot is discarded if that window overlaps any existing booking's own buffered range. Because the resolver has no I/O, it is covered by unit tests that run in milliseconds without mocking. The Supabase queries that feed it live in the adjacent `resolver.queries.ts`.
 
+### Security: RLS, server-side booking, double-booking constraint
+
+Row-Level Security is enabled on every table. `clients` and `appointments` have
+**no anonymous access** — the public booking flow goes through the
+`book_appointment` `SECURITY DEFINER` function, which upserts the client, reads the
+service price server-side, and inserts the appointment atomically. Anonymous
+availability reads come from a PII-free view (`appointments_public`) that exposes
+only `barber_id, start_time, end_time, status`. Staff write policies are
+admin-gated (`is_admin()`); barbers can mutate only their own schedule and
+time-off rows. A `btree_gist` `EXCLUDE` constraint guarantees no two non-cancelled
+appointments overlap for the same barber. Migrations `001 → 004` must be run in
+order (see Local setup).
+
 ### Supabase client without the Database generic
 
 The project uses `createClient()` without the generated `Database` generic type. TypeScript 6 strict mode makes that generated generic incompatible with standard insert and update call signatures — the deep conditional types inferred for `from().insert()` resolve to `never` under certain narrowing paths. Instead, manually maintained interfaces in `src/types/database.ts` describe the rows and insert payloads for each table. This is more verbose but unambiguous and compiles without workarounds.
@@ -76,6 +90,12 @@ npm run dev
 ```
 
 The app runs at `http://localhost:5173`.
+
+**Database migrations** — in the Supabase SQL editor, run the files in
+`supabase/migrations/` strictly in order: `001` (schema extensions), `002` (demo
+seed data), `003` (shop config), `004` (RLS hardening + booking RPC +
+double-booking constraint), `005` (slot holds). Later migrations depend on tables
+from earlier ones; running out of order will error.
 
 To run tests:
 

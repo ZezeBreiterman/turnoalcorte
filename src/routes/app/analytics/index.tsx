@@ -23,6 +23,8 @@ import {
   PieChart,
   Pie,
   Cell,
+  CartesianGrid,
+  Legend,
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { formatPrice } from '@/lib/time'
@@ -44,6 +46,24 @@ interface RawClient {
   created_at: string
 }
 
+interface RawBarberAppointment {
+  barber_id: string
+  status: AppointmentStatus
+  price_charged: number | null
+  barbers: {
+    name: string
+    color: string
+  } | null
+}
+
+interface RawServiceAppointment {
+  service_id: string
+  services: {
+    name: string
+    color: string
+  } | null
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<string, string> = {
@@ -56,6 +76,9 @@ const STATUS_COLORS: Record<string, string> = {
   in_progress: '#eab308',
   rescheduled: '#6b7280',
 }
+
+// Hourly heatmap: 8am to 9pm inclusive
+const HEATMAP_HOURS = Array.from({ length: 14 }, (_, i) => i + 8)
 
 // ── Data fetchers ─────────────────────────────────────────────────────────────
 
@@ -87,6 +110,38 @@ async function fetchClientsThisMonth(): Promise<RawClient[]> {
   return (data ?? []) as RawClient[]
 }
 
+async function fetchBarberRevenueAppointments(): Promise<RawBarberAppointment[]> {
+  const start = startOfDay(subDays(new Date(), 29)).toISOString()
+  const end = endOfDay(new Date()).toISOString()
+
+  const { data, error } = await supabase
+    .from('appointments')
+    .select('barber_id, status, price_charged, barbers(name, color)')
+    .eq('status', 'completed')
+    .gte('start_time', start)
+    .lte('start_time', end)
+
+  if (error) throw error
+  // Supabase types nested joins as arrays; the row shape is known here.
+  return (data ?? []) as unknown as RawBarberAppointment[]
+}
+
+async function fetchServiceAppointments(): Promise<RawServiceAppointment[]> {
+  const now = new Date()
+  const start = startOfMonth(now).toISOString()
+  const end = endOfMonth(now).toISOString()
+
+  const { data, error } = await supabase
+    .from('appointments')
+    .select('service_id, services(name, color)')
+    .gte('start_time', start)
+    .lte('start_time', end)
+
+  if (error) throw error
+  // Supabase types nested joins as arrays; the row shape is known here.
+  return (data ?? []) as unknown as RawServiceAppointment[]
+}
+
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
 function KPISkeleton() {
@@ -115,6 +170,8 @@ interface KPIData {
   revenueThisMonth: number
   noShowRate: number
   newClientsThisMonth: number
+  avgTicket: number
+  completionRate: number
 }
 
 function KPICard({
@@ -143,27 +200,41 @@ function KPICard({
 function KPIStrip({ data }: { data: KPIData }) {
   const { t } = useTranslation('dashboard')
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <KPICard
-        label={t('kpi_appts_month')}
-        value={data.totalThisMonth.toString()}
-        sub={t('kpi_appts_sub')}
-      />
-      <KPICard
-        label={t('kpi_revenue_month')}
-        value={formatPrice(data.revenueThisMonth)}
-        sub={t('kpi_revenue_sub')}
-      />
-      <KPICard
-        label={t('kpi_noshow_rate')}
-        value={`${data.noShowRate.toFixed(0)}%`}
-        sub={t('kpi_noshow_sub')}
-      />
-      <KPICard
-        label={t('kpi_new_clients')}
-        value={data.newClientsThisMonth.toString()}
-        sub={t('kpi_new_clients_sub')}
-      />
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <KPICard
+          label={t('kpi_appts_month')}
+          value={data.totalThisMonth.toString()}
+          sub={t('kpi_appts_sub')}
+        />
+        <KPICard
+          label={t('kpi_revenue_month')}
+          value={formatPrice(data.revenueThisMonth)}
+          sub={t('kpi_revenue_sub')}
+        />
+        <KPICard
+          label={t('kpi_noshow_rate')}
+          value={`${data.noShowRate.toFixed(0)}%`}
+          sub={t('kpi_noshow_sub')}
+        />
+        <KPICard
+          label={t('kpi_new_clients')}
+          value={data.newClientsThisMonth.toString()}
+          sub={t('kpi_new_clients_sub')}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <KPICard
+          label={t('kpi_avg_ticket')}
+          value={formatPrice(data.avgTicket)}
+          sub={t('kpi_avg_ticket_sub')}
+        />
+        <KPICard
+          label={t('kpi_completion_rate')}
+          value={`${data.completionRate.toFixed(0)}%`}
+          sub={t('kpi_completion_rate_sub')}
+        />
+      </div>
     </div>
   )
 }
@@ -173,28 +244,76 @@ function KPIStrip({ data }: { data: KPIData }) {
 interface TooltipPayloadItem {
   value: number
   name?: string
+  color?: string
 }
 
 interface CustomTooltipProps {
   active?: boolean
   payload?: TooltipPayloadItem[]
   label?: string
-  formatter?: (v: number) => string
+  formatter?: (v: number, name?: string) => string
+  multiLine?: boolean
 }
 
-function CustomTooltip({ active, payload, label, formatter }: CustomTooltipProps) {
+function CustomTooltip({ active, payload, label, formatter, multiLine }: CustomTooltipProps) {
   if (!active || !payload?.length) return null
+
+  if (multiLine) {
+    return (
+      <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 shadow-[var(--shadow-md)]">
+        <p className="text-xs text-[var(--color-fg-muted)] mb-2">{label}</p>
+        {payload.map((item, idx) => (
+          <p
+            key={idx}
+            className="text-sm font-semibold text-[var(--color-fg)] flex items-center gap-2"
+          >
+            {item.color && (
+              <span
+                className="inline-block size-2 rounded-full shrink-0"
+                style={{ backgroundColor: item.color }}
+              />
+            )}
+            <span>
+              {item.name && (
+                <span className="text-[var(--color-fg-muted)] font-normal mr-1">{item.name}:</span>
+              )}
+              {formatter ? formatter(item.value, item.name) : item.value}
+            </span>
+          </p>
+        ))}
+      </div>
+    )
+  }
+
   const val = payload[0].value
   return (
-    <div
-      className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 shadow-[var(--shadow-md)]"
-    >
+    <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 shadow-[var(--shadow-md)]">
       <p className="text-xs text-[var(--color-fg-muted)] mb-1">{label}</p>
       <p className="text-sm font-semibold text-[var(--color-fg)]">
         {formatter ? formatter(val) : val}
       </p>
     </div>
   )
+}
+
+// ── Derived data types ─────────────────────────────────────────────────────────
+
+interface BarberChartRow {
+  name: string
+  color: string
+  revenue: number
+  appointments: number
+}
+
+interface ServiceChartRow {
+  name: string
+  color: string
+  bookings: number
+}
+
+interface HourlyChartRow {
+  hour: string
+  bookings: number
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -212,7 +331,19 @@ export default function AnalyticsPage() {
     queryFn: fetchClientsThisMonth,
   })
 
+  const { data: barberAppts, isLoading: barberLoading } = useQuery({
+    queryKey: ['analytics', 'barber-revenue', 'last30'],
+    queryFn: fetchBarberRevenueAppointments,
+  })
+
+  const { data: serviceAppts, isLoading: serviceLoading } = useQuery({
+    queryKey: ['analytics', 'services', 'thisMonth'],
+    queryFn: fetchServiceAppointments,
+  })
+
   const isLoading = apptLoading || clientsLoading
+  const isBarberLoading = barberLoading
+  const isServiceLoading = serviceLoading
 
   // Status labels using i18n common keys
   const STATUS_LABELS: Record<string, string> = {
@@ -234,7 +365,6 @@ export default function AnalyticsPage() {
     const monthStart = startOfMonth(now)
     const monthEnd = endOfMonth(now)
 
-    // Filter to this month only
     const thisMonthAppts = appts.filter((a) => {
       const d = parseISO(a.start_time)
       return d >= monthStart && d <= monthEnd
@@ -242,20 +372,35 @@ export default function AnalyticsPage() {
 
     const totalThisMonth = thisMonthAppts.length
 
-    const revenueThisMonth = thisMonthAppts
-      .filter((a) => a.status === 'completed')
-      .reduce((sum, a) => sum + Number(a.price_charged ?? 0), 0)
+    const completedThisMonth = thisMonthAppts.filter((a) => a.status === 'completed')
+    const revenueThisMonth = completedThisMonth.reduce(
+      (sum, a) => sum + Number(a.price_charged ?? 0),
+      0,
+    )
 
     // No-show rate over last 30 days (all data fetched)
     const total30 = appts.length
     const noShows30 = appts.filter((a) => a.status === 'no_show').length
     const noShowRate = total30 > 0 ? (noShows30 / total30) * 100 : 0
 
+    // Avg ticket: revenue / completed appointments this month
+    const completedCount = completedThisMonth.length
+    const avgTicket = completedCount > 0 ? revenueThisMonth / completedCount : 0
+
+    // Completion rate: completed / (completed + no_show + cancelled)
+    const terminal = thisMonthAppts.filter(
+      (a) => a.status === 'completed' || a.status === 'no_show' || a.status === 'cancelled',
+    )
+    const completionRate =
+      terminal.length > 0 ? (completedCount / terminal.length) * 100 : 0
+
     return {
       totalThisMonth,
       revenueThisMonth,
       noShowRate,
       newClientsThisMonth: (newClients ?? []).length,
+      avgTicket,
+      completionRate,
     }
   }, [appointments, newClients])
 
@@ -321,6 +466,82 @@ export default function AnalyticsPage() {
 
   const total = statusBreakdown.reduce((s, d) => s + d.count, 0)
 
+  // ── Revenue & Appointments by Barber (last 30, completed) ────────────────
+
+  const barberChartData = useMemo<BarberChartRow[]>(() => {
+    const appts = barberAppts ?? []
+
+    const map = new Map<string, BarberChartRow>()
+
+    for (const a of appts) {
+      const barberName = a.barbers?.name ?? a.barber_id
+      const barberColor = a.barbers?.color ?? 'var(--color-primary)'
+
+      if (!map.has(barberName)) {
+        map.set(barberName, {
+          name: barberName,
+          color: barberColor,
+          revenue: 0,
+          appointments: 0,
+        })
+      }
+
+      const row = map.get(barberName)!
+      row.revenue += Number(a.price_charged ?? 0)
+      row.appointments += 1
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue)
+  }, [barberAppts])
+
+  // ── Top Services (this month) ─────────────────────────────────────────────
+
+  const serviceChartData = useMemo<ServiceChartRow[]>(() => {
+    const appts = serviceAppts ?? []
+
+    const map = new Map<string, ServiceChartRow>()
+
+    for (const a of appts) {
+      const serviceName = a.services?.name ?? a.service_id
+      const serviceColor = a.services?.color ?? 'var(--color-primary)'
+
+      if (!map.has(serviceName)) {
+        map.set(serviceName, {
+          name: serviceName,
+          color: serviceColor,
+          bookings: 0,
+        })
+      }
+
+      map.get(serviceName)!.bookings += 1
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.bookings - a.bookings)
+  }, [serviceAppts])
+
+  // ── Hourly Heatmap (last 30 days, from existing appointments) ─────────────
+
+  const hourlyChartData = useMemo<HourlyChartRow[]>(() => {
+    const appts = appointments ?? []
+
+    const counts: Record<number, number> = {}
+    for (const h of HEATMAP_HOURS) {
+      counts[h] = 0
+    }
+
+    for (const a of appts) {
+      const hour = parseISO(a.start_time).getHours()
+      if (hour >= HEATMAP_HOURS[0] && hour <= HEATMAP_HOURS[HEATMAP_HOURS.length - 1]) {
+        counts[hour] = (counts[hour] ?? 0) + 1
+      }
+    }
+
+    return HEATMAP_HOURS.map((h) => ({
+      hour: `${h}:00`,
+      bookings: counts[h] ?? 0,
+    }))
+  }, [appointments])
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -328,10 +549,17 @@ export default function AnalyticsPage() {
       <div className="space-y-6">
         {/* KPI Strip */}
         {isLoading ? (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {[0, 1, 2, 3].map((i) => (
-              <KPISkeleton key={i} />
-            ))}
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {[0, 1, 2, 3].map((i) => (
+                <KPISkeleton key={i} />
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {[0, 1].map((i) => (
+                <KPISkeleton key={i} />
+              ))}
+            </div>
           </div>
         ) : (
           <KPIStrip data={kpiData} />
@@ -474,10 +702,14 @@ export default function AnalyticsPage() {
                         ))}
                       </Pie>
                       <Tooltip
-                        formatter={(value: number, name: string) => [
-                          `${value} (${total > 0 ? ((value / total) * 100).toFixed(0) : 0}%)`,
-                          STATUS_LABELS[name] ?? name,
-                        ]}
+                        formatter={(value, name) => {
+                          const v = Number(value)
+                          const n = String(name)
+                          return [
+                            `${v} (${total > 0 ? ((v / total) * 100).toFixed(0) : 0}%)`,
+                            STATUS_LABELS[n] ?? n,
+                          ]
+                        }}
                       />
                     </PieChart>
                   </ResponsiveContainer>
@@ -513,6 +745,221 @@ export default function AnalyticsPage() {
                   })}
                 </div>
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Charts row 2: Barber Revenue + Top Services */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Chart 4: Revenue & Appointments by Barber */}
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('chart_barber_revenue')}</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4">
+              {isBarberLoading ? (
+                <ChartSkeleton height={240} />
+              ) : barberChartData.length === 0 ? (
+                <p className="text-sm text-[var(--color-fg-muted)] py-10 text-center">
+                  {t('chart_no_data')}
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height={Math.max(200, barberChartData.length * 52)}>
+                  <BarChart
+                    layout="vertical"
+                    data={barberChartData}
+                    margin={{ top: 4, right: 16, left: 8, bottom: 4 }}
+                  >
+                    <CartesianGrid horizontal={false} stroke="var(--color-border)" strokeDasharray="3 3" />
+                    <XAxis
+                      type="number"
+                      tick={{ fontSize: 10, fill: 'var(--color-fg-muted)' }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v: number) => formatPrice(v)}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      tick={{ fontSize: 11, fill: 'var(--color-fg)' }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={90}
+                    />
+                    <Tooltip
+                      content={
+                        <CustomTooltip
+                          multiLine
+                          formatter={(v, name) =>
+                            name === t('chart_barber_revenue_label')
+                              ? formatPrice(v)
+                              : v.toString()
+                          }
+                        />
+                      }
+                      cursor={{ fill: 'var(--color-bg-subtle)' }}
+                    />
+                    <Legend
+                      wrapperStyle={{ fontSize: 11, color: 'var(--color-fg-muted)' }}
+                    />
+                    <Bar
+                      dataKey="revenue"
+                      name={t('chart_barber_revenue_label')}
+                      radius={[0, 3, 3, 0]}
+                      maxBarSize={20}
+                    >
+                      {barberChartData.map((entry, index) => (
+                        <Cell
+                          key={`barber-rev-${index}`}
+                          fill={entry.color ?? 'var(--color-primary)'}
+                        />
+                      ))}
+                    </Bar>
+                    <Bar
+                      dataKey="appointments"
+                      name={t('chart_barber_appts_label')}
+                      fill="var(--color-bg-subtle)"
+                      radius={[0, 3, 3, 0]}
+                      maxBarSize={20}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Chart 5: Top Services */}
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('chart_top_services')}</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4">
+              {isServiceLoading ? (
+                <ChartSkeleton height={240} />
+              ) : serviceChartData.length === 0 ? (
+                <p className="text-sm text-[var(--color-fg-muted)] py-10 text-center">
+                  {t('chart_no_data')}
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height={Math.max(200, serviceChartData.length * 52)}>
+                  <BarChart
+                    layout="vertical"
+                    data={serviceChartData}
+                    margin={{ top: 4, right: 16, left: 8, bottom: 4 }}
+                  >
+                    <CartesianGrid horizontal={false} stroke="var(--color-border)" strokeDasharray="3 3" />
+                    <XAxis
+                      type="number"
+                      tick={{ fontSize: 10, fill: 'var(--color-fg-muted)' }}
+                      tickLine={false}
+                      axisLine={false}
+                      allowDecimals={false}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      tick={{ fontSize: 11, fill: 'var(--color-fg)' }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={110}
+                    />
+                    <Tooltip
+                      content={
+                        <CustomTooltip
+                          formatter={(v) =>
+                            v === 1
+                              ? t('bookings_label', { count: v })
+                              : t('bookings_label_plural', { count: v })
+                          }
+                        />
+                      }
+                      cursor={{ fill: 'var(--color-bg-subtle)' }}
+                    />
+                    <Bar
+                      dataKey="bookings"
+                      name={t('chart_top_services_label')}
+                      radius={[0, 3, 3, 0]}
+                      maxBarSize={20}
+                    >
+                      {serviceChartData.map((entry, index) => (
+                        <Cell
+                          key={`svc-${index}`}
+                          fill={entry.color ?? 'var(--color-primary)'}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Chart 6: Hourly Heatmap — full width */}
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('chart_hourly_heatmap')}</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {isLoading ? (
+              <ChartSkeleton height={200} />
+            ) : hourlyChartData.every((d) => d.bookings === 0) ? (
+              <p className="text-sm text-[var(--color-fg-muted)] py-10 text-center">
+                {t('chart_no_data')}
+              </p>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart
+                  data={hourlyChartData}
+                  margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+                >
+                  <CartesianGrid vertical={false} stroke="var(--color-border)" strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="hour"
+                    tick={{ fontSize: 10, fill: 'var(--color-fg-muted)' }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: 'var(--color-fg-muted)' }}
+                    tickLine={false}
+                    axisLine={false}
+                    allowDecimals={false}
+                  />
+                  <Tooltip
+                    content={
+                      <CustomTooltip
+                        formatter={(v) =>
+                          v === 1
+                            ? t('bookings_label', { count: v })
+                            : t('bookings_label_plural', { count: v })
+                        }
+                      />
+                    }
+                    cursor={{ fill: 'var(--color-bg-subtle)' }}
+                  />
+                  <Bar
+                    dataKey="bookings"
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={32}
+                  >
+                    {hourlyChartData.map((entry, index) => {
+                      // Intensity: darker fill for busier hours
+                      const max = Math.max(...hourlyChartData.map((d) => d.bookings), 1)
+                      const intensity = entry.bookings / max
+                      // Interpolate opacity 0.25 → 1.0
+                      const opacity = 0.25 + intensity * 0.75
+                      return (
+                        <Cell
+                          key={`hour-${index}`}
+                          fill="var(--color-primary)"
+                          fillOpacity={opacity}
+                        />
+                      )
+                    })}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             )}
           </CardContent>
         </Card>

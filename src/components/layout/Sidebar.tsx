@@ -9,7 +9,6 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Zap,
   LogOut,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -19,22 +18,25 @@ import { useUIStore } from '@/store/ui.store'
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
 import { signOut } from '@/lib/auth'
 import type { Profile } from '@/lib/auth'
+import { can } from '@/lib/can'
+import type { Action, Resource } from '@/lib/can'
 
 interface NavItemDef {
   to: string
   icon: React.ElementType
   labelKey: string
-  adminOnly?: boolean
+  /** If set, item is shown only when can(role, action, resource) is true. */
+  gate?: { action: Action; resource: Resource }
 }
 
 const NAV_ITEMS: NavItemDef[] = [
   { to: '/app/today',     icon: CalendarClock, labelKey: 'nav.today' },
   { to: '/app/calendar',  icon: Calendar,      labelKey: 'nav.calendar' },
   { to: '/app/clients',   icon: Users,         labelKey: 'nav.clients' },
-  { to: '/app/services',  icon: Scissors,      labelKey: 'nav.services',  adminOnly: true },
-  { to: '/app/barbers',   icon: User,          labelKey: 'nav.barbers',   adminOnly: true },
-  { to: '/app/analytics', icon: BarChart3,     labelKey: 'nav.analytics', adminOnly: true },
-  { to: '/app/settings',  icon: Settings,      labelKey: 'nav.settings',  adminOnly: true },
+  { to: '/app/services',  icon: Scissors,      labelKey: 'nav.services',  gate: { action: 'create', resource: 'service' } },
+  { to: '/app/barbers',   icon: User,          labelKey: 'nav.barbers',   gate: { action: 'create', resource: 'barber' } },
+  { to: '/app/analytics', icon: BarChart3,     labelKey: 'nav.analytics', gate: { action: 'read',   resource: 'analytics' } },
+  { to: '/app/settings',  icon: Settings,      labelKey: 'nav.settings',  gate: { action: 'update', resource: 'settings' } },
 ]
 
 interface SidebarProps {
@@ -49,9 +51,10 @@ export function Sidebar({ className }: SidebarProps) {
   // Profile comes from the app-shell loader — always available inside /app
   const loaderData = useRouteLoaderData('app-shell') as { profile: Profile } | null
   const role = loaderData?.profile.role ?? 'barber'
-  const isAdmin = role === 'admin'
 
-  const visibleItems = NAV_ITEMS.filter(item => !item.adminOnly || isAdmin)
+  const visibleItems = NAV_ITEMS.filter(
+    item => !item.gate || can(role, item.gate.action, item.gate.resource)
+  )
 
   return (
     <TooltipProvider>
@@ -69,8 +72,8 @@ export function Sidebar({ className }: SidebarProps) {
           'flex items-center gap-2.5 h-14 border-b border-[var(--color-sidebar-border)] shrink-0',
           collapsed ? 'px-3.5 justify-center' : 'px-4'
         )}>
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--color-primary)]">
-            <Zap className="size-4 text-white" />
+          <div className="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md)] bg-[var(--color-primary)] p-1">
+            <img src="/favicon.png" alt="Turnoalcorte" className="size-full object-contain invert" />
           </div>
           <AnimatePresence>
             {!collapsed && (
@@ -131,40 +134,44 @@ export function Sidebar({ className }: SidebarProps) {
               </AnimatePresence>
               <AnimatePresence>
                 {!collapsed && (
-                  <motion.button
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    onClick={() => signOut()}
-                    className="shrink-0 rounded p-0.5 text-[var(--color-sidebar-fg-muted)] hover:text-[var(--color-sidebar-fg)] transition-colors"
-                    aria-label="Sign out"
-                  >
-                    <LogOut className="size-3.5" />
-                  </motion.button>
+                  <Tooltip content={t('sign_out')} side="top">
+                    <motion.button
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      onClick={() => signOut()}
+                      className="shrink-0 rounded p-0.5 text-[var(--color-sidebar-fg-muted)] hover:text-[var(--color-sidebar-fg)] transition-colors"
+                      aria-label={t('sign_out')}
+                    >
+                      <LogOut className="size-3.5" />
+                    </motion.button>
+                  </Tooltip>
                 )}
               </AnimatePresence>
             </div>
           )}
 
           {/* Collapse toggle */}
-          <button
-            onClick={toggleSidebar}
-            className={cn(
-              'flex w-full items-center rounded-[var(--radius-md)] px-2 py-2 text-xs',
-              'text-[var(--color-sidebar-fg-muted)] hover:text-[var(--color-sidebar-fg)]',
-              'hover:bg-[var(--color-sidebar-hover)] transition-colors duration-150',
-              collapsed ? 'justify-center' : 'gap-2'
-            )}
-            aria-label={collapsed ? 'Expand sidebar' : t('collapse')}
-          >
-            {collapsed
-              ? <ChevronRight className="size-4" />
-              : <>
-                  <ChevronLeft className="size-4" />
-                  <span>{t('collapse')}</span>
-                </>
-            }
-          </button>
+          <Tooltip content={collapsed ? t('expand') : t('collapse')} side="right">
+            <button
+              onClick={toggleSidebar}
+              className={cn(
+                'flex w-full items-center rounded-[var(--radius-md)] px-2 py-2 text-xs',
+                'text-[var(--color-sidebar-fg-muted)] hover:text-[var(--color-sidebar-fg)]',
+                'hover:bg-[var(--color-sidebar-hover)] transition-colors duration-150',
+                collapsed ? 'justify-center' : 'gap-2'
+              )}
+              aria-label={collapsed ? t('expand') : t('collapse')}
+            >
+              {collapsed
+                ? <ChevronRight className="size-4" />
+                : <>
+                    <ChevronLeft className="size-4" />
+                    <span>{t('collapse')}</span>
+                  </>
+              }
+            </button>
+          </Tooltip>
         </div>
       </motion.aside>
     </TooltipProvider>
