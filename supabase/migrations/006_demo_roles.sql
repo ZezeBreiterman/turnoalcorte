@@ -10,6 +10,11 @@
 --                                 (sees only his own calendar/today)
 -- ============================================================
 
+-- The base schema's profiles_role_check only allowed ('admin','staff').
+-- The app's model is ('admin','barber'). Re-point the constraint, updating
+-- existing rows first so the re-add validates. Idempotent.
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
+
 -- Admins: full access (analytics, barbers, services, settings)
 UPDATE profiles
 SET role = 'admin', barber_id = NULL
@@ -20,6 +25,13 @@ UPDATE profiles
 SET role = 'barber',
     barber_id = 'b1000001-0000-0000-0000-000000000001'
 WHERE email = 'barber@turnoalcorte.com';
+
+-- Any remaining legacy 'staff' rows → 'barber' so the new check validates
+UPDATE profiles SET role = 'barber' WHERE role NOT IN ('admin', 'barber');
+
+-- Re-add the constraint with the app's role model
+ALTER TABLE profiles
+  ADD CONSTRAINT profiles_role_check CHECK (role IN ('admin', 'barber'));
 
 -- Sanity check — review the output:
 --   every staff user must be 'admin' or 'barber' (never 'staff'/NULL),
