@@ -215,11 +215,11 @@ export default function LoginPage() {
           >
             {/* Logo */}
             <div className="mb-8 flex flex-col items-center gap-3">
-              <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-xl)] bg-white shadow-lg p-2">
+              <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-xl)] shadow-lg">
                 <img
                   src="/favicon.png"
                   alt="Turnoalcorte"
-                  className="size-full object-contain"
+                  className="size-full object-cover"
                 />
               </div>
               <div className="text-center">

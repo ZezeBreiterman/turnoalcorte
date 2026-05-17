@@ -137,8 +137,8 @@ export default function AppShell() {
               {/* Header */}
               <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-4">
                 <div className="flex items-center gap-2">
-                  <div className="flex size-7 items-center justify-center overflow-hidden rounded-[var(--radius-md)] bg-[var(--color-primary)]">
-                    <img src="/favicon.png" alt="" className="size-full object-contain invert p-0.5" />
+                  <div className="flex size-7 items-center justify-center overflow-hidden rounded-[var(--radius-md)]">
+                    <img src="/favicon.png" alt="" className="size-full object-cover" />
                   </div>
                   <span className="text-sm font-semibold text-[var(--color-fg)]">Turnoalcorte</span>
                 </div>

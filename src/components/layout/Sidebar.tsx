@@ -72,8 +72,8 @@ export function Sidebar({ className }: SidebarProps) {
           'flex items-center gap-2.5 h-14 border-b border-[var(--color-sidebar-border)] shrink-0',
           collapsed ? 'px-3.5 justify-center' : 'px-4'
         )}>
-          <div className="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md)] bg-white p-1">
-            <img src="/favicon.png" alt="Turnoalcorte" className="size-full object-contain" />
+          <div className="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md)]">
+            <img src="/favicon.png" alt="Turnoalcorte" className="size-full object-cover" />
           </div>
           <AnimatePresence>
             {!collapsed && (
