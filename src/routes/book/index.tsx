@@ -12,6 +12,7 @@ import {
   MapPin,
   Sparkles,
   Zap,
+  Mail,
 } from 'lucide-react'
 import { format, addDays, getDay } from 'date-fns'
 import { supabase } from '@/lib/supabase'
@@ -43,6 +44,7 @@ interface BookingState {
   date?: Date
   name: string
   phone: string
+  email: string
   bookingCode?: string
   holdId?: string
   holdExpiresAt?: number // ms epoch
@@ -164,8 +166,9 @@ async function fetchSlotsForDay(barberId: string, service: Service, date: Date):
   })
 }
 
-// Lightweight hint for 14-day strip: does NOT do full slot resolution.
-// 2 DB queries cover all barbers × all days in the range.
+// Lightweight hint for 14-day strip.
+// 3 DB queries: schedule + time_off + actual appointment counts for accuracy.
+// Dot = green (4+ free slots), orange (1-3 free slots), none (fully booked/off-day).
 async function fetchAvailabilityHints(
   barberIds: string[],
   service: Service,
@@ -174,7 +177,7 @@ async function fetchAvailabilityHints(
   if (barberIds.length === 0 || days.length === 0) return new Map()
   const rangeStart = days[0]
   const rangeEnd = days[days.length - 1]
-  const [scheduleRes, timeOffRes] = await Promise.all([
+  const [scheduleRes, timeOffRes, apptRes] = await Promise.all([
     supabase.from('barber_schedules')
       .select('barber_id, day_of_week, start_time, end_time')
       .in('barber_id', barberIds),
@@ -183,14 +186,27 @@ async function fetchAvailabilityHints(
       .in('barber_id', barberIds)
       .lte('start_at', endOfDay(rangeEnd).toISOString())
       .gte('end_at', startOfDay(rangeStart).toISOString()),
+    // Actual booked-slot counts so dots reflect remaining capacity, not theoretical max
+    supabase.from('appointments_public')
+      .select('barber_id, start_time')
+      .in('barber_id', barberIds)
+      .gte('start_time', startOfDay(rangeStart).toISOString())
+      .lte('start_time', endOfDay(rangeEnd).toISOString()),
   ])
   const schedules = scheduleRes.data ?? []
   const timeOffs = timeOffRes.data ?? []
+  // Build booked-count map: "barberId:yyyy-MM-dd" → count
+  const bookedMap = new Map<string, number>()
+  for (const a of (apptRes.data ?? [])) {
+    const dateKey = format(new Date(a.start_time as string), 'yyyy-MM-dd')
+    const mapKey = (a.barber_id as string) + ':' + dateKey
+    bookedMap.set(mapKey, (bookedMap.get(mapKey) ?? 0) + 1)
+  }
   const result = new Map<string, DayHint>()
   for (const day of days) {
     const key = format(day, 'yyyy-MM-dd')
     const dow = day.getDay()
-    let bestEstimate = 0
+    let maxAvailable = 0
     for (const bid of barberIds) {
       const sched = schedules.find(s => s.barber_id === bid && s.day_of_week === dow)
       if (!sched) continue
@@ -204,9 +220,11 @@ async function fetchAvailabilityHints(
       const [eh, em] = (sched.end_time as string).split(':').map(Number)
       const workMin = (eh * 60 + em) - (sh * 60 + sm)
       const slotSize = service.duration_minutes + (service.buffer_after_minutes ?? 10)
-      bestEstimate = Math.max(bestEstimate, Math.floor(workMin / slotSize))
+      const maxSlots = Math.floor(workMin / slotSize)
+      const booked = bookedMap.get(bid + ':' + key) ?? 0
+      maxAvailable = Math.max(maxAvailable, Math.max(0, maxSlots - booked))
     }
-    result.set(key, bestEstimate === 0 ? 'off' : bestEstimate <= 3 ? 'limited' : 'available')
+    result.set(key, maxAvailable === 0 ? 'off' : maxAvailable <= 3 ? 'limited' : 'available')
   }
   return result
 }
@@ -702,12 +720,14 @@ function StepPick({
 
 // ── Step: Info ────────────────────────────────────────────────────────────────
 
-function StepInfo({ name, phone, onChangeName, onChangePhone, errors }: {
+function StepInfo({ name, phone, email, onChangeName, onChangePhone, onChangeEmail, errors }: {
   name: string
   phone: string
+  email: string
   onChangeName: (v: string) => void
   onChangePhone: (v: string) => void
-  errors: { name?: string; phone?: string }
+  onChangeEmail: (v: string) => void
+  errors: { name?: string; phone?: string; email?: string }
 }) {
   return (
     <motion.div
@@ -757,6 +777,31 @@ function StepInfo({ name, phone, onChangeName, onChangePhone, errors }: {
         ) : (
           <p id="book-phone-hint" className="text-xs text-[var(--color-fg-subtle)]">
             Te enviamos el recordatorio por WhatsApp.
+          </p>
+        )}
+      </motion.div>
+
+      <motion.div variants={itemVariants} className="space-y-1.5">
+        <label htmlFor="book-email" className="block text-xs font-semibold text-[var(--color-fg-muted)] uppercase tracking-wider">
+          Email <span className="normal-case text-[var(--color-fg-subtle)] font-normal">(opcional)</span>
+        </label>
+        <Input
+          id="book-email"
+          value={email}
+          onChange={(e) => onChangeEmail(e.target.value)}
+          placeholder="tu@email.com"
+          type="email"
+          error={!!errors.email}
+          aria-invalid={!!errors.email}
+          aria-describedby={errors.email ? 'book-email-error' : 'book-email-hint'}
+          autoComplete="email"
+          className="h-12 text-sm"
+        />
+        {errors.email ? (
+          <p id="book-email-error" role="alert" className="text-xs text-[var(--color-danger)]">{errors.email}</p>
+        ) : (
+          <p id="book-email-hint" className="text-xs text-[var(--color-fg-subtle)]">
+            Te mandamos una confirmación con los detalles del turno.
           </p>
         )}
       </motion.div>
@@ -819,7 +864,7 @@ function StepDone({ booking, code, shop }: { booking: BookingState; code: string
           <div className="px-5 py-4 flex items-center gap-3"
             style={{ background: `linear-gradient(135deg, ${ACCENT}15, ${ACCENT}05)`, borderBottom: `1px solid ${ACCENT}20` }}>
             {shop.logo_url ? (
-              <img src={shop.logo_url} alt={shop.name} className="size-8 rounded-xl object-cover shrink-0" />
+              <img src={shop.logo_url} alt={shop.name} className="size-8 rounded-xl object-cover shrink-0 bg-white" />
             ) : (
               <div className="size-8 rounded-xl flex items-center justify-center"
                 style={{ backgroundColor: ACCENT + '20' }}>
@@ -848,6 +893,9 @@ function StepDone({ booking, code, shop }: { booking: BookingState; code: string
               label="Hora"
               value={booking.slot ? `${formatTime(booking.slot.startAt)} – ${formatTime(booking.slot.endAt)}` : ''}
             />
+            {booking.email && (
+              <TicketRow icon={<Mail className="size-3.5" />} label="Email" value={booking.email} />
+            )}
           </div>
 
           {/* Perforated divider */}
@@ -924,7 +972,7 @@ function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingStat
             <img
               src={shop.logo_url}
               alt={shop.name}
-              className="size-9 rounded-xl object-cover shrink-0"
+              className="size-9 rounded-xl object-cover shrink-0 bg-white"
             />
           ) : (
             <div
@@ -1089,8 +1137,8 @@ function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingStat
 export default function BookPage() {
   const [step, setStep] = useState<Step>('service')
   const [dir, setDir] = useState(1)
-  const [booking, setBooking] = useState<BookingState>({ name: '', phone: '' })
-  const [infoErrors, setInfoErrors] = useState<{ name?: string; phone?: string }>({})
+  const [booking, setBooking] = useState<BookingState>({ name: '', phone: '', email: '' })
+  const [infoErrors, setInfoErrors] = useState<{ name?: string; phone?: string; email?: string }>({})
   const [holdRemaining, setHoldRemaining] = useState<number | null>(null) // seconds
 
   const { data: shop = { id: '', name: 'Turnoalcorte', logo_url: null, address: null, phone: null, description: null, instagram: null } as ShopConfig } = useQuery({ queryKey: keys.shop.config, queryFn: fetchShopConfig })
@@ -1112,6 +1160,7 @@ export default function BookPage() {
         p_end: booking.slot.endAt.toISOString(),
         p_name: booking.name,
         p_phone: booking.phone,
+        p_email: booking.email.trim() || null,
       })
       if (error) throw error
       return data as string
@@ -1227,6 +1276,7 @@ export default function BookPage() {
       const errors: typeof infoErrors = {}
       if (!booking.name.trim()) errors.name = 'El nombre es requerido'
       if (!booking.phone.trim() || booking.phone.trim().length < 6) errors.phone = 'El teléfono es requerido'
+      if (booking.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(booking.email.trim())) errors.email = 'Ingresá un email válido'
       if (Object.keys(errors).length) { setInfoErrors(errors); return }
       setInfoErrors({})
       confirm()
@@ -1256,7 +1306,7 @@ export default function BookPage() {
           <div className="md:hidden flex items-center gap-3 px-5 pt-6 pb-2"
             style={{ borderBottom: '1px solid var(--color-border)' }}>
             {shop.logo_url ? (
-              <img src={shop.logo_url} alt={shop.name} className="size-7 rounded-xl object-cover shrink-0" />
+              <img src={shop.logo_url} alt={shop.name} className="size-7 rounded-xl object-cover shrink-0 bg-white" />
             ) : (
               <div
                 className="size-7 rounded-xl flex items-center justify-center shrink-0"
@@ -1373,8 +1423,10 @@ export default function BookPage() {
                   <StepInfo
                     name={booking.name}
                     phone={booking.phone}
+                    email={booking.email}
                     onChangeName={(v) => setBooking((b) => ({ ...b, name: v }))}
                     onChangePhone={(v) => setBooking((b) => ({ ...b, phone: v }))}
+                    onChangeEmail={(v) => setBooking((b) => ({ ...b, email: v }))}
                     errors={infoErrors}
                   />
                 )}
@@ -1419,7 +1471,7 @@ export default function BookPage() {
             ) : (
               <button
                 type="button"
-                onClick={() => { navigate('service', -1); setBooking({ name: '', phone: '' }) }}
+                onClick={() => { navigate('service', -1); setBooking({ name: '', phone: '', email: '' }) }}
                 className="w-full h-14 rounded-2xl border border-[var(--color-border)] text-sm font-semibold text-[var(--color-fg)] bg-[var(--color-bg)] hover:bg-[var(--color-bg-subtle)] transition-colors active:scale-[0.98]"
               >
                 Reservar otro turno

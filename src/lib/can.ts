@@ -13,11 +13,11 @@ const matrix: Record<Role, Partial<Record<Resource, Action[]>>> = {
   },
   barber: {
     // Barbers are scoped to their own calendar + today view. No shop-wide
-    // analytics, no settings, no barber/service management.
+    // analytics, no settings, no barber/service management, no client PII.
     appointment: ['read', 'update', 'reschedule', 'cancel'],
     barber: ['read'],
     service: ['read'],
-    client: ['read', 'update'],
+    client: [],   // barbers cannot see or edit client records
     analytics: [],
     settings: [],
   },

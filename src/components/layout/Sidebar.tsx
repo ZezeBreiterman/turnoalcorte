@@ -32,7 +32,7 @@ interface NavItemDef {
 const NAV_ITEMS: NavItemDef[] = [
   { to: '/app/today',     icon: CalendarClock, labelKey: 'nav.today' },
   { to: '/app/calendar',  icon: Calendar,      labelKey: 'nav.calendar' },
-  { to: '/app/clients',   icon: Users,         labelKey: 'nav.clients' },
+  { to: '/app/clients',   icon: Users,         labelKey: 'nav.clients',   gate: { action: 'read',   resource: 'client' } },
   { to: '/app/services',  icon: Scissors,      labelKey: 'nav.services',  gate: { action: 'create', resource: 'service' } },
   { to: '/app/barbers',   icon: User,          labelKey: 'nav.barbers',   gate: { action: 'create', resource: 'barber' } },
   { to: '/app/analytics', icon: BarChart3,     labelKey: 'nav.analytics', gate: { action: 'read',   resource: 'analytics' } },
@@ -72,8 +72,8 @@ export function Sidebar({ className }: SidebarProps) {
           'flex items-center gap-2.5 h-14 border-b border-[var(--color-sidebar-border)] shrink-0',
           collapsed ? 'px-3.5 justify-center' : 'px-4'
         )}>
-          <div className="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md)] bg-[var(--color-primary)] p-1">
-            <img src="/favicon.png" alt="Turnoalcorte" className="size-full object-contain invert" />
+          <div className="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md)] bg-white p-1">
+            <img src="/favicon.png" alt="Turnoalcorte" className="size-full object-contain" />
           </div>
           <AnimatePresence>
             {!collapsed && (

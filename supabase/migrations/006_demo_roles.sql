@@ -10,6 +10,14 @@
 --                                 (sees only his own calendar/today)
 -- ============================================================
 
+-- Ensure Martín Gómez barber row exists (FK target for barber profile).
+-- If 002_seed_demo_data.sql has already been run this is a no-op.
+INSERT INTO barbers (id, name, email, bio, color, active) VALUES
+  ('b1000001-0000-0000-0000-000000000001', 'Martín Gómez', 'martin@turnoalcorte.com',
+   'Especialista en degradados y barbas clásicas. 8 años de experiencia en el rubro.',
+   '#6366f1', true)
+ON CONFLICT (id) DO NOTHING;
+
 -- The base schema's profiles_role_check only allowed ('admin','staff').
 -- The app's model is ('admin','barber'). Re-point the constraint, updating
 -- existing rows first so the re-add validates. Idempotent.
