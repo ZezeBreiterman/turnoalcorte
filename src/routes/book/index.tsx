@@ -10,7 +10,6 @@ import {
   User,
   Calendar,
   MapPin,
-  Sparkles,
   Zap,
   Mail,
 } from 'lucide-react'
@@ -615,10 +614,13 @@ function StepPick({
                 style={active ? { backgroundColor: color } : {}}
               >
                 <div
-                  className="size-4 rounded-full text-[8px] font-bold text-white flex items-center justify-center shrink-0"
+                  className="size-4 rounded-full overflow-hidden shrink-0 flex items-center justify-center text-[8px] font-bold text-white"
                   style={{ backgroundColor: active ? 'rgba(255,255,255,0.3)' : color }}
                 >
-                  {b.name.charAt(0)}
+                  {b.photo_url
+                    ? <img src={b.photo_url} alt={b.name} className="size-full object-cover" />
+                    : b.name.charAt(0)
+                  }
                 </div>
                 {b.name.split(' ')[0]}
               </button>
@@ -863,14 +865,9 @@ function StepDone({ booking, code, shop }: { booking: BookingState; code: string
           {/* Ticket header strip */}
           <div className="px-5 py-4 flex items-center gap-3"
             style={{ background: `linear-gradient(135deg, ${ACCENT}15, ${ACCENT}05)`, borderBottom: `1px solid ${ACCENT}20` }}>
-            {shop.logo_url ? (
-              <img src={shop.logo_url} alt={shop.name} className="size-8 rounded-xl object-cover shrink-0 bg-white" />
-            ) : (
-              <div className="size-8 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: ACCENT + '20' }}>
-                <Sparkles className="size-4" style={{ color: ACCENT }} />
-              </div>
-            )}
+            <div className="size-8 rounded-xl overflow-hidden shrink-0">
+              <img src={shop.logo_url ?? '/favicon.png'} alt={shop.name} className="size-full object-cover" />
+            </div>
             <div>
               <p className="text-xs font-bold uppercase tracking-widest" style={{ color: ACCENT }}>
                 {shop.name}
@@ -968,20 +965,9 @@ function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingStat
       {/* Brand */}
       <div>
         <div className="flex items-center gap-2.5 mb-12">
-          {shop.logo_url ? (
-            <img
-              src={shop.logo_url}
-              alt={shop.name}
-              className="size-9 rounded-xl object-cover shrink-0 bg-white"
-            />
-          ) : (
-            <div
-              className="size-8 rounded-xl flex items-center justify-center shrink-0"
-              style={{ backgroundColor: ACCENT }}
-            >
-              <Scissors className="size-4 text-white" strokeWidth={2} />
-            </div>
-          )}
+          <div className="size-9 rounded-xl overflow-hidden shrink-0">
+            <img src={shop.logo_url ?? '/favicon.png'} alt={shop.name} className="size-full object-cover" />
+          </div>
           <div className="min-w-0">
             <span className="text-sm font-bold tracking-tight block" style={{ color: SIDEBAR_TEXT }}>
               {shop.name}
@@ -1305,16 +1291,9 @@ export default function BookPage() {
           {/* Mobile header */}
           <div className="md:hidden flex items-center gap-3 px-5 pt-6 pb-2"
             style={{ borderBottom: '1px solid var(--color-border)' }}>
-            {shop.logo_url ? (
-              <img src={shop.logo_url} alt={shop.name} className="size-7 rounded-xl object-cover shrink-0 bg-white" />
-            ) : (
-              <div
-                className="size-7 rounded-xl flex items-center justify-center shrink-0"
-                style={{ backgroundColor: ACCENT }}
-              >
-                <Scissors className="size-3.5 text-white" strokeWidth={2} />
-              </div>
-            )}
+            <div className="size-7 rounded-xl overflow-hidden shrink-0">
+              <img src={shop.logo_url ?? '/favicon.png'} alt={shop.name} className="size-full object-cover" />
+            </div>
             <div className="min-w-0">
               <span className="text-sm font-bold text-[var(--color-fg)] tracking-tight block">{shop.name}</span>
               {shop.address && (
