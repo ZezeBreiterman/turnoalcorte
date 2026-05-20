@@ -1,154 +1,315 @@
 # Turnoalcorte
 
-Barber shop scheduling platform. Customers book in under 25 seconds; owners manage the day from a keyboard-driven dashboard.
+Barbershop scheduling platform. Customers book in under 25 seconds; owners manage the full day from a keyboard-driven dashboard.
 
-**Live demo:** https://turnoalcorte.vercel.app
+**Live:** https://turnoalcorte.vercel.app · **Booking:** https://turnoalcorte.vercel.app/book
 
-![Dashboard](docs/screenshot-dashboard.png)
+---
+
+## Table of contents
+
+1. [Features](#features)
+2. [Tech stack](#tech-stack)
+3. [Architecture](#architecture)
+4. [Security model](#security-model)
+5. [Local setup](#local-setup)
+6. [Database migrations](#database-migrations)
+7. [Demo credentials](#demo-credentials)
+8. [Project structure](#project-structure)
+9. [Testing](#testing)
+10. [Roadmap](#roadmap)
 
 ---
 
 ## Features
 
-- **Public booking flow** — no account required. Customer picks service, barber, and date; available slots are computed in real time. The booking itself is written through a `SECURITY DEFINER` Postgres function (`book_appointment`) — the anonymous client never touches the `clients` or `appointments` tables directly, and the price is read server-side so it cannot be spoofed.
-- **Barber-column day calendar** — each barber gets a vertical lane. Appointments can be dragged to reschedule within or across barbers.
-- **Real-time updates** — Supabase Realtime pushes appointment changes to every connected client instantly. Two staff members can work the same view without stepping on each other.
-- **Command palette** — `Cmd+K` / `Ctrl+K` opens a full-text command palette (cmdk) for quick navigation and actions without touching the mouse.
-- **Status workflow** — appointments move through `pending → confirmed → checked-in → in-progress → completed`. Each transition is a deliberate action, not an automatic timer.
-- **Availability resolver** — a pure function that computes 15-minute slot candidates for a given barber, service, and date. Buffer minutes before and after each appointment are first-class inputs; no slot is offered if the padded window would overlap an existing booking or a blocked time range.
-- **Role-based access** — barbers see today's schedule and their client list; admins additionally access analytics, barber management, service configuration, and settings. Enforced at three layers: route loaders, a centralized `lib/can.ts` permission matrix driving the UI, and Postgres RLS policies (the real boundary).
-- **No double-booking** — a Postgres `EXCLUDE` constraint makes overlapping appointments for the same barber impossible at the database level, closing the check-then-write race; the UI surfaces a friendly "slot just taken" recovery if two customers race the same time.
-- **Analytics** — revenue and appointment volume charts (Recharts) scoped to any date range.
+### Public booking (`/book`)
+- No account required — any customer can book
+- Picks service → barber (or "any") → date + time in one unified view
+- Available slots computed from live schedule, time-off, and existing bookings
+- 10-minute server-side slot hold prevents two customers grabbing the same time
+- Auto-assigns the least-loaded barber when "any" is chosen
+- Booking confirmation ticket with a 6-character code; optional email receipt
+- Friendly "slot just taken" recovery if two customers race the same window
+
+### Staff dashboard (`/app`)
+- **Today view** — KPI strip (appointments, revenue, pending), live appointment list with Supabase Realtime, add-appointment sheet
+- **Calendar** — day, week, and month views; drag-to-reschedule within a day lane; right-click context menu (edit / duplicate / cancel)
+- **Barbers** — add/edit barbers, assign service permissions, set weekly schedule, block vacation/time-off
+- **Services** — service catalogue (name, duration, buffer minutes, price); per-service discount codes (% or fixed)
+- **Clients** — searchable client list with notes and preferred barber
+- **Analytics** — revenue trend, bookings by day, hourly heatmap, barber performance, top services (Recharts)
+- **Settings** — shop name/address/phone/instagram, theme, language (ES/EN)
+- **Command palette** — `Cmd+K` / `Ctrl+K` for instant navigation and actions
+
+### Auth
+- Magic-link login (no password required) via Supabase OTP
+- Password fallback with forgot-password reset flow
+- Role-based access: `admin` sees everything; `barber` sees only their own calendar and today view
 
 ---
 
 ## Tech stack
 
-| Tool | Why |
-|---|---|
-| React 19 | Concurrent rendering and the new compiler reduce re-renders on the live calendar without manual memoization. |
-| TypeScript 6 | Strict mode catches mismatched database shapes at compile time rather than runtime. |
-| Vite 8 | Sub-second HMR during development; route-level code splitting is trivial with dynamic `import()`. |
-| Tailwind v4 | CSS-first config eliminates `tailwind.config.js`; the new engine compiles only what the build uses. |
-| React Router v7 | Loader-based data fetching keeps auth guards and redirects colocated with the route instead of scattered across components. |
-| TanStack Query v5 | Server state, background refetching, and optimistic updates backed by a typed query-key factory for scoped cache invalidation. |
-| Supabase | Postgres, magic-link auth, and Realtime subscriptions from a single client. No separate auth service to operate. |
-| Framer Motion 12 | Layout animations on the calendar when appointments are added or moved; spring physics matched to interaction weight. |
-| dnd-kit | Drag-to-reschedule on the day calendar. Accessible by default; operable without a mouse. |
-| Zod v4 | Schema validation for booking form inputs and API response shapes. Single source of truth between the form and the database write. |
-| Recharts | Composable SVG charts for the analytics page. Straightforward to theme against the design tokens. |
-| sonner | Toast notifications for booking confirmations, status changes, and errors. Minimal API; no context provider required. |
-| cmdk | Headless command palette primitive wrapped with navigation targets and quick actions. |
-| Zustand | UI state that genuinely does not belong in the server cache (selected date, open panels). Kept to a small slice. |
+| Layer | Tool | Why |
+|---|---|---|
+| Framework | React 19 | Concurrent rendering and the new compiler cut re-renders on the live calendar |
+| Language | TypeScript 5 strict | Mismatched database shapes caught at compile time |
+| Build | Vite 8 | Sub-second HMR; manual chunk splitting for vendor bundles |
+| Styling | Tailwind CSS v4 | CSS-first config, design tokens as custom properties |
+| Routing | React Router v7 | Loader-based auth guards colocated with routes |
+| Server state | TanStack Query v5 | Typed query-key factory, background refetch, optimistic updates |
+| Backend | Supabase | Postgres + Auth + Realtime + Storage from one client |
+| Animation | Framer Motion 12 | Spring-physics layout transitions; `layoutId` for shared-element moves |
+| Drag & drop | dnd-kit | Accessible drag-to-reschedule; keyboard operable |
+| Validation | Zod v4 | Single schema used by forms and API payloads |
+| Charts | Recharts | Composable SVG charts themed against design tokens |
+| Toasts | sonner | No context provider; fired from anywhere |
+| Command palette | cmdk | Headless primitive wrapped with nav targets |
+| Global UI state | Zustand + persist | Only UI state that doesn't belong in server cache |
 
 ---
 
-## Architecture decisions
+## Architecture
 
-### Timezone discipline via `lib/time.ts`
+### Directory layout
 
-`src/lib/time.ts` is the only file in the codebase that constructs raw `Date` objects or imports directly from `date-fns`. Every other module goes through the named exports from this file (`now()`, `today()`, `parseTimestamp()`, `toTimeOnDate()`, `formatTime()`, etc.). This makes timezone behaviour auditable in one place. If the app ever needs to support multiple time zones, the change surface is exactly one file.
+```
+src/
+├── components/         Shared UI primitives and layout shell
+│   ├── layout/         AppShell, Sidebar, MobileMenu
+│   ├── ui/             Button, Input, Card, Badge, Avatar, Tooltip …
+│   └── command/        CommandPalette (cmdk wrapper)
+├── features/           Domain logic grouped by capability
+│   └── availability/   Slot resolver (pure fn) + Supabase queries
+├── routes/             One file per route — thin orchestration layer
+│   ├── book/           Public booking flow (no auth required)
+│   ├── auth/           Login + Supabase OTP callback
+│   └── app/            Protected pages (today, calendar, clients …)
+├── lib/                Shared utilities — no UI dependencies
+│   ├── auth.ts         Session + profile helpers used by route loaders
+│   ├── can.ts          Role × action × resource permission matrix
+│   ├── query-keys.ts   Typed TanStack Query key factory
+│   ├── supabase.ts     Singleton Supabase client
+│   └── time.ts         Single entry point for all date/time operations
+├── store/
+│   └── ui.store.ts     Zustand slice: theme, language, sidebar, calendar view
+├── types/
+│   └── database.ts     Manual row + insert interfaces (no generated types)
+├── i18n/               react-i18next setup + EN/ES locale files
+├── hooks/              useTheme, useDensity, useMediaQuery …
+└── router.tsx          Route tree with loader-based auth guards
+```
 
-### Query key factory
+### Timezone discipline (`lib/time.ts`)
 
-`src/lib/query-keys.ts` exports a single factory object that produces typed, hierarchical query keys — for example, `keys.appointments.byBarber(barberId, date)`. TanStack Query's cache invalidation is scoped by key prefix: invalidating `keys.appointments.all` resets every appointment query; invalidating `keys.appointments.byBarber(id)` resets only that barber's lane. This prevents stale-cache bugs when a drag-to-reschedule touches more than one barber.
+`lib/time.ts` is the **only** file that constructs raw `Date` objects or imports directly from `date-fns`. Every other module calls named exports from here (`now()`, `parseTimestamp()`, `toTimeOnDate()`, `formatTime()` …). Timezone behaviour is auditable in one place; supporting multiple time zones in the future requires changing one file.
 
-### Pure availability resolver
+### Query-key factory (`lib/query-keys.ts`)
 
-`src/features/availability/resolver.ts` is a pure function with no side effects and no Supabase calls. It receives schedule rows, time-off blocks, and booked appointments as plain objects, and returns an array of `{ startAt, endAt }` slots. Buffer math is applied symmetrically: the candidate window is `bufferBefore + serviceDuration + bufferAfter`; a slot is discarded if that window overlaps any existing booking's own buffered range. Because the resolver has no I/O, it is covered by unit tests that run in milliseconds without mocking. The Supabase queries that feed it live in the adjacent `resolver.queries.ts`.
+All TanStack Query keys are produced by a single typed factory:
 
-### Security: RLS, server-side booking, double-booking constraint
+```ts
+keys.appointments.byBarber(barberId, date)
+keys.availability.slots(barberId, serviceId, date)
+keys.shop.config
+```
 
-Row-Level Security is enabled on every table. `clients` and `appointments` have
-**no anonymous access** — the public booking flow goes through the
-`book_appointment` `SECURITY DEFINER` function, which upserts the client, reads the
-service price server-side, and inserts the appointment atomically. Anonymous
-availability reads come from a PII-free view (`appointments_public`) that exposes
-only `barber_id, start_time, end_time, status`. Staff write policies are
-admin-gated (`is_admin()`); barbers can mutate only their own schedule and
-time-off rows. A `btree_gist` `EXCLUDE` constraint guarantees no two non-cancelled
-appointments overlap for the same barber. Migrations `001 → 004` must be run in
-order (see Local setup).
+Cache invalidation is scoped by prefix: `invalidate(keys.appointments.all)` resets every appointment query; `invalidate(keys.appointments.today())` resets only the today feed. This prevents stale-cache bugs when a drag-to-reschedule touches more than one barber column.
 
-### Supabase client without the Database generic
+### Pure availability resolver (`features/availability/resolver.ts`)
 
-The project uses `createClient()` without the generated `Database` generic type. TypeScript 6 strict mode makes that generated generic incompatible with standard insert and update call signatures — the deep conditional types inferred for `from().insert()` resolve to `never` under certain narrowing paths. Instead, manually maintained interfaces in `src/types/database.ts` describe the rows and insert payloads for each table. This is more verbose but unambiguous and compiles without workarounds.
+`resolveAvailableSlots()` is a **pure function with no Supabase calls**. It receives schedule rows, time-off blocks, and booked appointments as plain objects and returns `{ startAt, endAt }[]` slots. Buffer math is symmetrical: each candidate occupies `bufferBefore + duration + bufferAfter` and is discarded if that window overlaps any existing booking's own buffered range. Because there is no I/O, unit tests run in milliseconds without mocking.
+
+The Supabase queries that feed the resolver live in the components that call it (currently `book/index.tsx` and `calendar/index.tsx`).
+
+### Role-based access (`lib/can.ts`)
+
+```ts
+can(role, action, resource) // → boolean
+```
+
+Three-layer enforcement:
+1. **Route loaders** — `router.tsx` redirects unauthenticated users before the component renders
+2. **UI layer** — `can()` hides nav items and mutation buttons for the `barber` role
+3. **Database (real boundary)** — Postgres RLS policies; `is_admin()` / `is_staff()` SECURITY DEFINER helpers
+
+### UI state (`store/ui.store.ts`)
+
+Zustand slice persisted to `localStorage` under the key `turnoalcorte-ui`. Persisted keys: `theme`, `density`, `language`, `sidebarCollapsed`, `calendarView`, `tutorialCompleted`, `recentCommands`. Transient keys (not persisted): `commandOpen`, `tutorialOpen`, `tutorialStep`.
+
+---
+
+## Security model
+
+See [`docs/SECURITY.md`](docs/SECURITY.md) for the full writeup. Summary:
+
+| Threat | Mitigation |
+|---|---|
+| Anon client dumping client PII | RLS on `clients` — no anon SELECT; booking goes through `book_appointment` SECURITY DEFINER RPC |
+| Price spoofing | Price read server-side inside the RPC; client never touches `appointments` directly |
+| Double-booking race | `btree_gist` EXCLUDE constraint on `(barber_id, tstzrange)` — DB-level, not application-level |
+| Slot squatting | 10-minute server-side hold via `slot_holds` table; holds auto-expire |
+| Horizontal privilege escalation (barber reads other barbers' clients) | RLS `is_admin()` policy on `clients`; `barber` role has `client: []` in `lib/can.ts` |
+| Overprivileged barber mutations | Barber write policies are scoped to their own `barber_id` (schedules, time-off) |
 
 ---
 
 ## Local setup
 
 ```bash
-git clone https://github.com/your-handle/turnoalcorte.git
+git clone https://github.com/ZezeBreiterman/turnoalcorte.git
 cd turnoalcorte
 npm install
+
 cp .env.example .env.local
-# Open .env.local and fill in:
-#   VITE_SUPABASE_URL=https://your-project.supabase.co
-#   VITE_SUPABASE_ANON_KEY=your-anon-key
-npm run dev
+# Edit .env.local:
+#   VITE_SUPABASE_URL=https://wghrjhcuuhbrninznfyb.supabase.co
+#   VITE_SUPABASE_ANON_KEY=<your anon public key>
+
+npm run dev          # → http://localhost:5173
+npm run build        # production build (runs tsc -b first)
+npm test             # vitest unit tests
+npm run test:watch   # watch mode
 ```
 
-The app runs at `http://localhost:5173`.
+---
 
-**Database migrations** — in the Supabase SQL editor, run the files in
-`supabase/migrations/` strictly in order: `001` (schema extensions), `002` (demo
-seed data), `003` (shop config), `004` (RLS hardening + booking RPC +
-double-booking constraint), `005` (slot holds). Later migrations depend on tables
-from earlier ones; running out of order will error.
+## Database migrations
 
-To run tests:
+Run files from `supabase/migrations/` **in order** in the Supabase SQL Editor. Each migration is idempotent — safe to re-run after a partial failure.
 
-```bash
-npm test                # single run
-npm run test:watch      # watch mode
-npm run test:coverage   # coverage report
-```
+| File | What it does |
+|---|---|
+| `001_initial_schema.sql` | Core tables: `profiles`, `barbers`, `services`, `clients`, `appointments`, `barber_schedules`, `time_off`, `barber_shops` |
+| `002_seed_demo_data.sql` | Demo shop, barbers, and services for local development |
+| `003_shop_config.sql` | `shop_config` table (name, address, logo, phone, instagram) |
+| `004_rls_hardening.sql` | **Critical.** Enables RLS on all core tables, drops open policies, adds `is_admin()` / `is_staff()` helpers, creates `book_appointment` SECURITY DEFINER RPC, adds `btree_gist` EXCLUDE double-booking constraint, creates `appointments_public` PII-free view |
+| `005_slot_holds.sql` | `slot_holds` table + `hold_slot` / `release_slot` RPCs for the 10-minute booking reservation |
+| `006_demo_roles.sql` | Sets `admin` / `barber` roles for demo accounts; fixes role constraint; seeds Martín Gómez barber row |
+| `007_book_appointment_email.sql` | Adds `email` column to `clients`; replaces `book_appointment` with 7-argument version that accepts and stores an optional email |
+
+> **Warning:** migrations 004+ depend on tables from 001. Running out of order will fail.
 
 ---
 
 ## Demo credentials
 
-This is a single-shop deployment.
+| Role | Email | Access |
+|---|---|---|
+| Admin | `admin@turnoalcorte.com` | Full app — analytics, barbers, services, settings |
+| Barber | `barber@turnoalcorte.com` | Today view + calendar only (linked to Martín Gómez) |
+| Public | — | `/book` — no login required |
 
-```
-Admin login:    your-email@example.com  (magic link — Supabase sends to your inbox)
-Public booking: /book                   (no login required)
-```
+Passwords are set in **Supabase Dashboard → Authentication → Users**. Magic-link login is also available for any email registered as a user.
 
 ---
 
-## Project structure
+## Project structure (detailed)
 
 ```
 src/
-├── components/       Shared UI primitives and layout shell (AppShell, sidebar, modals)
-├── features/         Domain logic grouped by feature
-│   ├── availability/ Slot resolver (pure function) + Supabase queries that feed it
-│   ├── appointments/ CRUD, status transitions, optimistic updates
-│   ├── barbers/      Barber list, schedule editor, time-off management
-│   ├── clients/      Client profiles and appointment history
-│   ├── services/     Service catalogue (name, duration, buffer, price)
-│   └── analytics/    Revenue and volume aggregations
-├── routes/           One file per route; thin wrappers over feature components
-│   ├── book.tsx      Public booking flow (no auth)
-│   ├── auth/         Magic-link login and Supabase callback
-│   └── app/          Protected pages (today, calendar, clients, services, …)
-├── lib/              Shared utilities with no UI dependencies
-│   ├── time.ts       Single entry point for all date/time operations
-│   ├── query-keys.ts Typed TanStack Query key factory
-│   ├── supabase.ts   Singleton Supabase client
-│   └── auth.ts       Session helpers used by route loaders
-├── types/            Manual database row and insert interfaces
-└── router.tsx        Route tree with loader-based auth guards
+├── components/
+│   ├── layout/
+│   │   ├── AppShell.tsx          Protected app wrapper; mobile nav drawer
+│   │   └── Sidebar.tsx           Collapsible desktop sidebar with role-gated nav
+│   ├── ui/
+│   │   ├── avatar.tsx            NamedAvatar (photo or coloured initial)
+│   │   ├── badge.tsx             Status chips
+│   │   ├── button.tsx            Primary / ghost / destructive variants
+│   │   ├── card.tsx              Surface primitive
+│   │   ├── input.tsx             Form input with error state
+│   │   ├── label.tsx             Accessible form label
+│   │   ├── select.tsx            Native select wrapper
+│   │   ├── skeleton.tsx          Loading placeholders
+│   │   ├── textarea.tsx          Multiline input
+│   │   └── tooltip.tsx           Radix tooltip wrapper
+│   └── command/
+│       └── CommandPalette.tsx    ⌘K palette with recent commands + nav + actions
+│
+├── features/
+│   └── availability/
+│       ├── resolver.ts           Pure slot-resolution function (unit-tested)
+│       └── resolver.test.ts      Vitest unit tests for the resolver
+│
+├── routes/
+│   ├── book/
+│   │   └── index.tsx             4-step public booking flow (service→pick→info→done)
+│   ├── auth/
+│   │   ├── login.tsx             Magic-link + password login; forgot-password flow
+│   │   └── callback.tsx          Supabase OTP redirect handler → /app/today
+│   └── app/
+│       ├── today/index.tsx       KPI strip + live appointment list + add-appointment sheet
+│       ├── calendar/index.tsx    Day/week/month calendar with DnD rescheduling
+│       ├── barbers/index.tsx     Barber CRUD + schedule + time-off management
+│       ├── services/index.tsx    Service catalogue + discount codes
+│       ├── clients/index.tsx     Client list + search + edit
+│       ├── analytics/index.tsx   Revenue + volume charts
+│       └── settings/index.tsx    Shop config + theme + language
+│
+├── lib/
+│   ├── auth.ts         getProfile(), getSession(), signOut() — used by route loaders
+│   ├── can.ts          Role-based permission matrix
+│   ├── query-keys.ts   Typed TanStack Query key factory
+│   ├── supabase.ts     Singleton Supabase client (reads VITE_SUPABASE_*)
+│   ├── time.ts         All date/time helpers (only file that uses date-fns directly)
+│   ├── utils.ts        cn() class merger
+│   └── sentry.ts       Sentry user identification helpers
+│
+├── store/
+│   └── ui.store.ts     Zustand: theme, language, sidebar, calendar view, tutorial
+│
+├── types/
+│   ├── database.ts     Row + insert interfaces for every table
+│   └── supabase.ts     Generated / supplementary Supabase types
+│
+├── i18n/
+│   ├── index.ts        i18next setup (ES default, EN fallback)
+│   └── locales/
+│       ├── es/         auth, booking, calendar, common, dashboard, settings
+│       └── en/         (same namespaces)
+│
+├── hooks/
+│   ├── useTheme.ts     Reads + applies CSS data-theme attribute
+│   ├── useDensity.ts   Reads density from UI store (compact / cozy)
+│   └── useMediaQuery.ts Reactive window.matchMedia
+│
+└── router.tsx          Route tree; loader-based session + profile guards
 ```
 
 ---
 
-## What I would add next
+## Testing
 
-- **Stripe deposits** — collect a partial payment at booking time to reduce no-shows.
-- **SMS reminders** — send a Twilio message 24 hours and 1 hour before each appointment.
-- **PWA + offline queue** — cache today's schedule in IndexedDB so the dashboard stays usable during a connection drop; sync writes when back online.
-- **Multi-tenant support** — add a `shops` table and scope all queries by `shop_id` so the platform serves multiple barbershops from one deployment.
-- **Customer portal** — let returning customers log in to view, reschedule, or cancel their own bookings without going through the owner.
+```bash
+npm test                # run all unit tests once
+npm run test:watch      # watch mode (re-runs on file change)
+npm run test:coverage   # Istanbul coverage report in /coverage
+```
+
+### Current coverage
+
+| File | Type | Status |
+|---|---|---|
+| `features/availability/resolver.ts` | Unit | Covered |
+| `lib/can.ts` | Unit | Not yet |
+| `lib/time.ts` | Unit | Not yet |
+| `routes/book` (full booking flow) | E2E (Playwright) | Not yet |
+| `routes/auth` (magic link) | E2E | Not yet |
+
+Playwright is installed and configured. No e2e tests exist yet — the `/book` booking flow is the highest-value target.
+
+---
+
+## Roadmap
+
+| Feature | Priority |
+|---|---|
+| i18n the public booking page (`/book` is hardcoded Spanish) | High |
+| E2E tests: booking flow, auth, RBAC | High |
+| Client-facing cancellation page (`/appointment/:code`) | Medium |
+| Stripe deposit at booking time to reduce no-shows | Medium |
+| SMS reminders via Twilio (24h + 1h before) | Medium |
+| Density toggle UI in Settings (hook + store already implemented) | Low |
+| PWA + offline queue for today view | Low |
+| Multi-tenant support (scope all queries by `shop_id`) | Future |
