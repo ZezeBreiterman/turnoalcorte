@@ -40,7 +40,10 @@
     "time": "Time",
     "date_and_time": "Date and time",
     "booking_code": "Booking code",
-    "booking_confirmation": "Booking confirmation"
+    "booking_confirmation": "Booking confirmation",
+    "available": "available",
+    "limited": "limited",
+    "unavailable": "unavailable"
   },
   "placeholders": {
     "full_name": "Your full name",

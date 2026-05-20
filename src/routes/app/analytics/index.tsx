@@ -223,7 +223,7 @@ function KPIStrip({ data }: { data: KPIData }) {
           sub={t('kpi_new_clients_sub')}
         />
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <KPICard
           label={t('kpi_avg_ticket')}
           value={formatPrice(data.avgTicket)}
@@ -555,7 +555,7 @@ export default function AnalyticsPage() {
                 <KPISkeleton key={i} />
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {[0, 1].map((i) => (
                 <KPISkeleton key={i} />
               ))}

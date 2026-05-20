@@ -341,6 +341,7 @@ function DayStrip({
   onSelect: (d: Date) => void
   hints?: Map<string, DayHint>
 }) {
+  const { t } = useTranslation('booking')
   const days = Array.from({ length: 14 }, (_, i) => startOfDay(addDays(now(), i)))
   return (
     <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1"
@@ -358,6 +359,7 @@ function DayStrip({
             onClick={() => onSelect(day)}
             whileTap={{ scale: 0.93 }}
             disabled={isOff}
+            aria-label={`${formatDayLong(day)}, ${hint === 'available' ? t('labels.available') : hint === 'limited' ? t('labels.limited') : t('labels.unavailable')}`}
             className={cn(
               'flex flex-col items-center shrink-0 w-13 min-w-[52px] rounded-2xl py-2.5 px-1.5 border transition-colors duration-150',
               'focus-visible:outline-none focus-visible:ring-2',
@@ -600,9 +602,11 @@ function StepPick({
         <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)] mb-3">
           {t('labels.barber')}
         </p>
-        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+        <div role="tablist" aria-label={t('labels.barber')} className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
           <button
             type="button"
+            role="tab"
+            aria-selected={viewingBarberId === 'any'}
             onClick={() => setViewingBarberId('any')}
             className={cn(
               'shrink-0 flex items-center gap-1.5 h-9 px-3.5 rounded-xl border text-xs font-semibold transition-all duration-150 focus-visible:outline-none',
@@ -622,6 +626,8 @@ function StepPick({
               <button
                 key={b.id}
                 type="button"
+                role="tab"
+                aria-selected={active}
                 onClick={() => setViewingBarberId(b.id)}
                 className={cn(
                   'shrink-0 flex items-center gap-1.5 h-9 px-3.5 rounded-xl border text-xs font-semibold transition-all duration-150 focus-visible:outline-none',

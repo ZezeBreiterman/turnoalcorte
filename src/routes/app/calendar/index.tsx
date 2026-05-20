@@ -415,6 +415,14 @@ function AppointmentBlock({
       style={style}
       {...attributes}
       {...listeners}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick?.()
+        }
+      }}
     >
       <div
         className="h-full px-2 py-1.5 flex flex-col gap-0.5 text-white"
@@ -1333,13 +1341,13 @@ export default function CalendarPage() {
                 className="flex flex-1 flex-col overflow-hidden"
               >
                 {/* Header row — barber columns */}
-                <div className="flex shrink-0 border-b border-[var(--color-border)] bg-[var(--color-bg)]">
+                <div className="flex shrink-0 border-b border-[var(--color-border)] bg-[var(--color-bg)] overflow-x-auto">
                   {/* Time gutter */}
                   <div className="w-14 shrink-0" />
                   {barbers.map((barber) => (
                     <div
                       key={barber.id}
-                      className="flex-1 flex items-center gap-2 px-3 py-2.5 border-l border-[var(--color-border)] min-w-0"
+                      className="flex-1 flex items-center gap-2 px-3 py-2.5 border-l border-[var(--color-border)] min-w-[140px]"
                     >
                       <NamedAvatar name={barber.name} color={barber.color} size="sm" />
                       <div className="min-w-0">
@@ -1358,7 +1366,7 @@ export default function CalendarPage() {
                 </div>
 
                 {/* Scrollable grid */}
-                <div className="flex-1 overflow-y-auto" data-tour="calendar-grid">
+                <div className="flex-1 overflow-y-auto overflow-x-auto" data-tour="calendar-grid">
                   <DndContext
                     sensors={sensors}
                     onDragStart={handleDragStart}

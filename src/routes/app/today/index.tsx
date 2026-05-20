@@ -175,6 +175,14 @@ function AppointmentCard({ appointment, index, onClick }: { appointment: Appoint
       transition={{ delay: index * 0.05, duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
       whileTap={{ scale: 0.99 }}
       onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick?.()
+        }
+      }}
       className={cn(
         'group relative flex items-center gap-4 rounded-[var(--radius-lg)] border p-4 transition-all duration-150',
         'hover:border-[var(--color-border-strong)] hover:shadow-[var(--shadow-md)] cursor-pointer',

@@ -40,7 +40,10 @@
     "time": "Hora",
     "date_and_time": "Fecha y hora",
     "booking_code": "Código de reserva",
-    "booking_confirmation": "Confirmación de reserva"
+    "booking_confirmation": "Confirmación de reserva",
+    "available": "disponible",
+    "limited": "últimos turnos",
+    "unavailable": "sin turnos"
   },
   "placeholders": {
     "full_name": "Tu nombre completo",
