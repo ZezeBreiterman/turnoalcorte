@@ -8,6 +8,7 @@ import { useTheme } from '@/hooks/useTheme'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { supabase } from '@/lib/supabase'
+import { signOut } from '@/lib/auth'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useUIStore } from '@/store/ui.store'
@@ -121,7 +122,7 @@ export default function SettingsPage() {
   })
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
+    await signOut()
     toast.success(t('signed_out'))
     navigate('/auth/login', { replace: true })
   }

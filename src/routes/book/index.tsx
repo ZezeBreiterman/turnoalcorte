@@ -557,16 +557,25 @@ function StepPick({
       })()
 
   // Auto-assign: pick barber with most remaining slots (most available = least booked)
-  function resolveBarber(slot: TimeSlot): Barber {
+  function resolveBarber(slot: TimeSlot): Barber | null {
     if (viewingBarber) return viewingBarber
     const k = slot.startAt.toISOString()
     const candidates = filteredBarbers.filter(b =>
       (slotsByBarber[b.id] ?? []).some(s => s.startAt.toISOString() === k),
     )
-    if (candidates.length === 0) return filteredBarbers[0]
+    if (candidates.length === 0) return filteredBarbers[0] ?? null
     return candidates.reduce((best, b) =>
       (slotsByBarber[b.id]?.length ?? 0) > (slotsByBarber[best.id]?.length ?? 0) ? b : best,
     )
+  }
+
+  function handleSlotClick(slot: TimeSlot) {
+    const barber = resolveBarber(slot)
+    if (!barber) {
+      toast.error('No hay barberos disponibles para este servicio')
+      return
+    }
+    onSlotSelect(slot, barber)
   }
 
   function barberCountForSlot(slot: TimeSlot): number {
@@ -682,7 +691,7 @@ function StepPick({
                       key={slot.startAt.toISOString()}
                       variants={itemVariants}
                       type="button"
-                      onClick={() => onSlotSelect(slot, resolveBarber(slot))}
+                      onClick={() => handleSlotClick(slot)}
                       disabled={isHolding}
                       whileTap={{ scale: 0.93 }}
                       className={cn(
