@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { motion, AnimatePresence, useMotionValue, useSpring } from 'framer-motion'
@@ -13,7 +14,6 @@ import {
   Zap,
   Mail,
 } from 'lucide-react'
-import { format, addDays, getDay } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { resolveAvailableSlots } from '@/features/availability/resolver'
 import type { TimeSlot } from '@/features/availability/resolver'
@@ -25,6 +25,13 @@ import {
   formatTime,
   durationLabel,
   formatPrice,
+  addDays,
+  getDay,
+  parseTimestamp,
+  formatShortWeekday,
+  formatShortMonth,
+  formatDayLong,
+  formatDateKey,
 } from '@/lib/time'
 import { Input } from '@/components/ui/input'
 import { keys } from '@/lib/query-keys'
@@ -59,16 +66,17 @@ const ACCENT_DARK = '#ea6500'
 const SIDEBAR_BG = '#0c0a09'
 const SIDEBAR_TEXT = 'rgba(255,255,255,0.9)'
 const SIDEBAR_MUTED = 'rgba(255,255,255,0.4)'
-const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
-const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
-
 const STEPS: Step[] = ['service', 'pick', 'info', 'done']
 
-const STEP_META: Record<Step, { title: string; sub: string; sideLabel: string }> = {
-  service: { title: '¿Qué servicio querés?',   sub: 'Elegí el tipo de corte o tratamiento.',   sideLabel: 'Servicio'  },
-  pick:    { title: '¿Cuándo te viene bien?',  sub: 'Elegí barbero, día y horario disponible.', sideLabel: 'Turno'     },
-  info:    { title: '¿Cómo te llamamos?',      sub: 'Tus datos para confirmar el turno.',       sideLabel: 'Tus datos' },
-  done:    { title: '',                         sub: '',                                          sideLabel: ''          },
+interface StepMeta { title: string; sub: string; sideLabel: string }
+function useStepMeta(): Record<Step, StepMeta> {
+  const { t } = useTranslation('booking')
+  return useMemo(() => ({
+    service: { title: t('steps.service_title'), sub: t('steps.service_sub'), sideLabel: t('steps.service_side') },
+    pick:    { title: t('steps.pick_title'),    sub: t('steps.pick_sub'),    sideLabel: t('steps.pick_side')    },
+    info:    { title: t('steps.info_title'),    sub: t('steps.info_sub'),    sideLabel: t('steps.info_side')    },
+    done:    { title: '', sub: '', sideLabel: '' },
+  }), [t])
 }
 
 // ── Animation variants ────────────────────────────────────────────────────────
@@ -197,13 +205,13 @@ async function fetchAvailabilityHints(
   // Build booked-count map: "barberId:yyyy-MM-dd" → count
   const bookedMap = new Map<string, number>()
   for (const a of (apptRes.data ?? [])) {
-    const dateKey = format(new Date(a.start_time as string), 'yyyy-MM-dd')
+    const dateKey = formatDateKey(parseTimestamp(a.start_time as string))
     const mapKey = (a.barber_id as string) + ':' + dateKey
     bookedMap.set(mapKey, (bookedMap.get(mapKey) ?? 0) + 1)
   }
   const result = new Map<string, DayHint>()
   for (const day of days) {
-    const key = format(day, 'yyyy-MM-dd')
+    const key = formatDateKey(day)
     const dow = day.getDay()
     let maxAvailable = 0
     for (const bid of barberIds) {
@@ -211,8 +219,8 @@ async function fetchAvailabilityHints(
       if (!sched) continue
       const fullyBlocked = timeOffs.some(
         to => to.barber_id === bid &&
-          new Date(to.start_at) <= startOfDay(day) &&
-          new Date(to.end_at) >= endOfDay(day),
+          parseTimestamp(to.start_at) <= startOfDay(day) &&
+          parseTimestamp(to.end_at) >= endOfDay(day),
       )
       if (fullyBlocked) continue
       const [sh, sm] = (sched.start_time as string).split(':').map(Number)
@@ -338,9 +346,9 @@ function DayStrip({
     <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1"
       style={{ scrollbarWidth: 'none' }}>
       {days.map((day) => {
-        const key = format(day, 'yyyy-MM-dd')
-        const isSelected = selected && format(selected, 'yyyy-MM-dd') === key
-        const isNow = key === format(now(), 'yyyy-MM-dd')
+        const key = formatDateKey(day)
+        const isSelected = selected && formatDateKey(selected) === key
+        const isNow = key === formatDateKey(now())
         const hint = hints?.get(key)
         const isOff = hint === 'off'
         return (
@@ -364,11 +372,11 @@ function DayStrip({
             style={isSelected ? { backgroundColor: ACCENT, borderColor: ACCENT } : {}}
           >
             <span className="text-[9px] font-bold uppercase leading-none mb-1.5 tracking-wider opacity-80">
-              {DAY_LABELS[day.getDay()]}
+              {formatShortWeekday(day)}
             </span>
             <span className="text-lg font-bold leading-none tabular-nums">{day.getDate()}</span>
             <span className="text-[9px] leading-none mt-1 opacity-70 uppercase tracking-wider">
-              {MONTH_LABELS[day.getMonth()]}
+              {formatShortMonth(day)}
             </span>
             {/* Availability dot */}
             <div className="h-1 mt-1 flex items-center justify-center">
@@ -495,6 +503,7 @@ function StepPick({
   onDateSelect: (d: Date) => void
   onSlotSelect: (s: TimeSlot, barber: Barber) => void
 }) {
+  const { t } = useTranslation('booking')
   const [viewingBarberId, setViewingBarberId] = useState<string | 'any'>('any')
 
   // Auto-select today on mount so slots appear immediately
@@ -572,7 +581,7 @@ function StepPick({
   function handleSlotClick(slot: TimeSlot) {
     const barber = resolveBarber(slot)
     if (!barber) {
-      toast.error('No hay barberos disponibles para este servicio')
+      toast.error(t('errors.no_barbers_for_service'))
       return
     }
     onSlotSelect(slot, barber)
@@ -589,7 +598,7 @@ function StepPick({
       {/* ── Barber filter tabs ──────────────────────────────────────────────── */}
       <div>
         <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)] mb-3">
-          Barbero
+          {t('labels.barber')}
         </p>
         <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
           <button
@@ -604,7 +613,7 @@ function StepPick({
             style={viewingBarberId === 'any' ? { backgroundColor: ACCENT } : {}}
           >
             <Zap className="size-3" />
-            Cualquiera
+            {t('labels.any_barber_short')}
           </button>
           {filteredBarbers.map(b => {
             const active = viewingBarberId === b.id
@@ -641,7 +650,7 @@ function StepPick({
       {/* ── Day strip ───────────────────────────────────────────────────────── */}
       <div>
         <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)] mb-3">
-          Día
+          {t('labels.day')}
         </p>
         <DayStrip selected={selectedDate} onSelect={onDateSelect} hints={hints} />
       </div>
@@ -656,11 +665,11 @@ function StepPick({
           >
             <div className="flex items-center justify-between mb-3">
               <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)]">
-                Horarios disponibles
+                {t('labels.available_slots')}
               </p>
               {viewingBarberId === 'any' && displaySlots.length > 0 && (
                 <p className="text-[10px] text-[var(--color-fg-subtle)]">
-                  Barbero asignado automáticamente
+                  {t('labels.auto_assigned')}
                 </p>
               )}
             </div>
@@ -673,8 +682,8 @@ function StepPick({
             ) : displaySlots.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[var(--color-border)] p-6 text-center">
                 <Clock className="size-5 mx-auto text-[var(--color-fg-subtle)] mb-2" />
-                <p className="text-sm font-medium text-[var(--color-fg-muted)]">Sin turnos disponibles</p>
-                <p className="text-xs text-[var(--color-fg-subtle)] mt-1">Probá con otro día</p>
+                <p className="text-sm font-medium text-[var(--color-fg-muted)]">{t('empty.no_slots_title')}</p>
+                <p className="text-xs text-[var(--color-fg-subtle)] mt-1">{t('empty.no_slots_hint')}</p>
               </div>
             ) : (
               <motion.div
@@ -740,6 +749,7 @@ function StepInfo({ name, phone, email, onChangeName, onChangePhone, onChangeEma
   onChangeEmail: (v: string) => void
   errors: { name?: string; phone?: string; email?: string }
 }) {
+  const { t } = useTranslation('booking')
   return (
     <motion.div
       variants={listVariants}
@@ -749,13 +759,13 @@ function StepInfo({ name, phone, email, onChangeName, onChangePhone, onChangeEma
     >
       <motion.div variants={itemVariants} className="space-y-1.5">
         <label htmlFor="book-name" className="block text-xs font-semibold text-[var(--color-fg-muted)] uppercase tracking-wider">
-          Nombre completo
+          {t('labels.full_name')}
         </label>
         <Input
           id="book-name"
           value={name}
           onChange={(e) => onChangeName(e.target.value)}
-          placeholder="Tu nombre completo"
+          placeholder={t('placeholders.full_name')}
           error={!!errors.name}
           aria-invalid={!!errors.name}
           aria-describedby={errors.name ? 'book-name-error' : undefined}
@@ -769,13 +779,13 @@ function StepInfo({ name, phone, email, onChangeName, onChangePhone, onChangeEma
 
       <motion.div variants={itemVariants} className="space-y-1.5">
         <label htmlFor="book-phone" className="block text-xs font-semibold text-[var(--color-fg-muted)] uppercase tracking-wider">
-          Teléfono
+          {t('labels.phone')}
         </label>
         <Input
           id="book-phone"
           value={phone}
           onChange={(e) => onChangePhone(e.target.value)}
-          placeholder="+54 11 1234-5678"
+          placeholder={t('placeholders.phone')}
           type="tel"
           error={!!errors.phone}
           aria-invalid={!!errors.phone}
@@ -787,20 +797,20 @@ function StepInfo({ name, phone, email, onChangeName, onChangePhone, onChangeEma
           <p id="book-phone-error" role="alert" className="text-xs text-[var(--color-danger)]">{errors.phone}</p>
         ) : (
           <p id="book-phone-hint" className="text-xs text-[var(--color-fg-subtle)]">
-            Te enviamos el recordatorio por WhatsApp.
+            {t('hints.phone_whatsapp')}
           </p>
         )}
       </motion.div>
 
       <motion.div variants={itemVariants} className="space-y-1.5">
         <label htmlFor="book-email" className="block text-xs font-semibold text-[var(--color-fg-muted)] uppercase tracking-wider">
-          Email <span className="normal-case text-[var(--color-fg-subtle)] font-normal">(opcional)</span>
+          {t('labels.email')} <span className="normal-case text-[var(--color-fg-subtle)] font-normal">{t('labels.optional')}</span>
         </label>
         <Input
           id="book-email"
           value={email}
           onChange={(e) => onChangeEmail(e.target.value)}
-          placeholder="tu@email.com"
+          placeholder={t('placeholders.email')}
           type="email"
           error={!!errors.email}
           aria-invalid={!!errors.email}
@@ -812,7 +822,7 @@ function StepInfo({ name, phone, email, onChangeName, onChangePhone, onChangeEma
           <p id="book-email-error" role="alert" className="text-xs text-[var(--color-danger)]">{errors.email}</p>
         ) : (
           <p id="book-email-hint" className="text-xs text-[var(--color-fg-subtle)]">
-            Te mandamos una confirmación con los detalles del turno.
+            {t('hints.email_confirmation')}
           </p>
         )}
       </motion.div>
@@ -823,6 +833,7 @@ function StepInfo({ name, phone, email, onChangeName, onChangePhone, onChangeEma
 // ── Step: Done (Ticket) ───────────────────────────────────────────────────────
 
 function StepDone({ booking, code, shop }: { booking: BookingState; code: string; shop: ShopConfig }) {
+  const { t } = useTranslation('booking')
   return (
     <div className="flex flex-col items-center gap-6 py-2">
       {/* Animated check */}
@@ -854,10 +865,10 @@ function StepDone({ booking, code, shop }: { booking: BookingState; code: string
         className="text-center"
       >
         <h2 className="text-2xl font-bold text-[var(--color-fg)] tracking-tight">
-          ¡Turno confirmado!
+          {t('done.title')}
         </h2>
         <p className="text-sm text-[var(--color-fg-muted)] mt-1">
-          Te esperamos, <span className="font-semibold text-[var(--color-fg)]">{booking.name.split(' ')[0]}</span>.
+          {t('done.greeting')} <span className="font-semibold text-[var(--color-fg)]">{booking.name.split(' ')[0]}</span>.
         </p>
       </motion.div>
 
@@ -881,26 +892,26 @@ function StepDone({ booking, code, shop }: { booking: BookingState; code: string
               <p className="text-xs font-bold uppercase tracking-widest" style={{ color: ACCENT }}>
                 {shop.name}
               </p>
-              <p className="text-[10px] text-[var(--color-fg-muted)]">Confirmación de reserva</p>
+              <p className="text-[10px] text-[var(--color-fg-muted)]">{t('labels.booking_confirmation')}</p>
             </div>
           </div>
 
           {/* Ticket rows */}
           <div className="divide-y divide-[var(--color-border)]">
-            <TicketRow icon={<Scissors className="size-3.5" />} label="Servicio" value={booking.service?.name ?? ''} />
-            <TicketRow icon={<User className="size-3.5" />}     label="Barbero"  value={booking.barber?.name ?? ''} />
+            <TicketRow icon={<Scissors className="size-3.5" />} label={t('labels.service')} value={booking.service?.name ?? ''} />
+            <TicketRow icon={<User className="size-3.5" />}     label={t('labels.barber')}  value={booking.barber?.name ?? ''} />
             <TicketRow
               icon={<Calendar className="size-3.5" />}
-              label="Fecha"
-              value={booking.date ? format(booking.date, "EEEE d 'de' MMMM") : ''}
+              label={t('labels.date')}
+              value={booking.date ? formatDayLong(booking.date) : ''}
             />
             <TicketRow
               icon={<Clock className="size-3.5" />}
-              label="Hora"
+              label={t('labels.time')}
               value={booking.slot ? `${formatTime(booking.slot.startAt)} – ${formatTime(booking.slot.endAt)}` : ''}
             />
             {booking.email && (
-              <TicketRow icon={<Mail className="size-3.5" />} label="Email" value={booking.email} />
+              <TicketRow icon={<Mail className="size-3.5" />} label={t('labels.email')} value={booking.email} />
             )}
           </div>
 
@@ -916,7 +927,7 @@ function StepDone({ booking, code, shop }: { booking: BookingState; code: string
           {/* Booking code */}
           <div className="px-5 py-5 text-center">
             <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)] mb-2">
-              Código de reserva
+              {t('labels.booking_code')}
             </p>
             <p
               className="text-3xl font-bold tracking-[0.3em] font-[var(--font-mono)] tabular-nums"
@@ -934,7 +945,7 @@ function StepDone({ booking, code, shop }: { booking: BookingState; code: string
         transition={{ delay: 0.6 }}
         className="flex flex-col items-center gap-1 text-xs text-[var(--color-fg-subtle)]"
       >
-        <span>Guardá este código como comprobante.</span>
+        <span>{t('hints.save_code')}</span>
         {shop.address && (
           <span className="flex items-center gap-1">
             <MapPin className="size-3" />
@@ -964,6 +975,8 @@ function TicketRow({ icon, label, value }: { icon: React.ReactNode; label: strin
 // ── Left sidebar ──────────────────────────────────────────────────────────────
 
 function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingState; shop: ShopConfig }) {
+  const { t } = useTranslation('booking')
+  const stepMeta = useStepMeta()
   const stepIdx = STEPS.indexOf(step)
 
   return (
@@ -1034,7 +1047,7 @@ function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingStat
                   className="text-xs font-medium transition-colors duration-200"
                   style={{ color: isActive ? SIDEBAR_TEXT : isDone ? SIDEBAR_MUTED : 'rgba(255,255,255,0.22)' }}
                 >
-                  {STEP_META[s].sideLabel}
+                  {stepMeta[s].sideLabel}
                 </span>
               </div>
             )
@@ -1059,7 +1072,7 @@ function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingStat
               }}
             >
               <p className="text-[9px] font-bold uppercase tracking-widest mb-1"
-                style={{ color: SIDEBAR_MUTED }}>Servicio</p>
+                style={{ color: SIDEBAR_MUTED }}>{t('labels.service')}</p>
               <p className="text-sm font-semibold" style={{ color: SIDEBAR_TEXT }}>
                 {booking.service.name}
               </p>
@@ -1090,7 +1103,7 @@ function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingStat
               </div>
               <div className="min-w-0">
                 <p className="text-[9px] font-bold uppercase tracking-widest mb-0.5"
-                  style={{ color: SIDEBAR_MUTED }}>Barbero</p>
+                  style={{ color: SIDEBAR_MUTED }}>{t('labels.barber')}</p>
                 <p className="text-sm font-semibold truncate" style={{ color: SIDEBAR_TEXT }}>
                   {booking.barber.name}
                 </p>
@@ -1112,9 +1125,9 @@ function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingStat
               }}
             >
               <p className="text-[9px] font-bold uppercase tracking-widest mb-1"
-                style={{ color: SIDEBAR_MUTED }}>Fecha y hora</p>
+                style={{ color: SIDEBAR_MUTED }}>{t('labels.date_and_time')}</p>
               <p className="text-sm font-semibold capitalize" style={{ color: SIDEBAR_TEXT }}>
-                {format(booking.date, "EEEE d 'de' MMMM")}
+                {formatDayLong(booking.date)}
               </p>
               <p className="text-xs mt-0.5 font-[var(--font-mono)]" style={{ color: ACCENT }}>
                 {formatTime(booking.slot.startAt)} – {formatTime(booking.slot.endAt)}
@@ -1130,6 +1143,8 @@ function LeftSidebar({ step, booking, shop }: { step: Step; booking: BookingStat
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function BookPage() {
+  const { t } = useTranslation('booking')
+  const stepMeta = useStepMeta()
   const [step, setStep] = useState<Step>('service')
   const [dir, setDir] = useState(1)
   const [booking, setBooking] = useState<BookingState>({ name: '', phone: '', email: '' })
@@ -1171,15 +1186,15 @@ export default function BookPage() {
       const msg = err instanceof Error ? err.message : String(err)
       if (msg.includes('slot_taken')) {
         // Someone grabbed this slot between availability check and confirm.
-        toast.error('Ese turno se acaba de ocupar. Elegí otro horario.')
+        toast.error(t('errors.slot_taken_confirm'))
         queryClient.invalidateQueries({ queryKey: keys.availability.all })
         setBooking((b) => ({ ...b, slot: undefined, holdId: undefined, holdExpiresAt: undefined }))
         setDir(-1)
         setStep('pick')
       } else if (msg.includes('service_unavailable')) {
-        toast.error('Ese servicio ya no está disponible.')
+        toast.error(t('errors.service_unavailable'))
       } else {
-        toast.error('No pudimos confirmar el turno. Intentá de nuevo.')
+        toast.error(t('errors.confirm_failed'))
       }
     },
   })
@@ -1210,10 +1225,10 @@ export default function BookPage() {
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
       if (msg.includes('slot_taken')) {
-        toast.error('Ese horario se acaba de ocupar. Probá con otro.')
+        toast.error(t('errors.slot_taken_hold'))
         queryClient.invalidateQueries({ queryKey: keys.availability.all })
       } else {
-        toast.error('No pudimos reservar el horario. Intentá de nuevo.')
+        toast.error(t('errors.hold_failed'))
       }
       setBooking((b) => ({ ...b, slot: undefined, holdId: undefined, holdExpiresAt: undefined }))
     },
@@ -1232,7 +1247,7 @@ export default function BookPage() {
         setHoldRemaining(0)
         // Clearing holdId releases the expired hold via the effect below.
         setBooking((b) => ({ ...b, slot: undefined, holdId: undefined, holdExpiresAt: undefined }))
-        toast.error('La reserva del horario expiró. Elegí otro turno.')
+        toast.error(t('errors.hold_expired'))
         setDir(-1)
         setStep('pick')
       } else {
@@ -1242,7 +1257,7 @@ export default function BookPage() {
     tick()
     const iv = setInterval(tick, 1000)
     return () => clearInterval(iv)
-  }, [booking.holdExpiresAt, step])
+  }, [booking.holdExpiresAt, step, t])
 
   // Single source of truth for releasing a hold: whenever holdId stops
   // pointing at a hold (slot change, expiry, confirm, or unmount), free it.
@@ -1269,9 +1284,9 @@ export default function BookPage() {
     else if (step === 'pick' && booking.slot) navigate('info', 1)
     else if (step === 'info') {
       const errors: typeof infoErrors = {}
-      if (!booking.name.trim()) errors.name = 'El nombre es requerido'
-      if (!booking.phone.trim() || booking.phone.trim().length < 6) errors.phone = 'El teléfono es requerido'
-      if (booking.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(booking.email.trim())) errors.email = 'Ingresá un email válido'
+      if (!booking.name.trim()) errors.name = t('errors.name_required')
+      if (!booking.phone.trim() || booking.phone.trim().length < 6) errors.phone = t('errors.phone_required')
+      if (booking.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(booking.email.trim())) errors.email = t('errors.email_invalid')
       if (Object.keys(errors).length) { setInfoErrors(errors); return }
       setInfoErrors({})
       confirm()
@@ -1320,13 +1335,13 @@ export default function BookPage() {
                 {/* Back + step label row */}
                 <div className="flex items-center gap-3 mb-5">
                   {step !== 'service' && (
-                    <Tooltip content="Volver" side="bottom">
+                    <Tooltip content={t('actions.back')} side="bottom">
                       <button
                         type="button"
                         onClick={goBack}
                         className="size-9 flex items-center justify-center rounded-xl border border-[var(--color-border)] text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-subtle)] transition-colors focus-visible:outline-none focus-visible:ring-2"
                         style={{ '--tw-ring-color': ACCENT } as React.CSSProperties}
-                        aria-label="Volver"
+                        aria-label={t('actions.back')}
                       >
                         <ChevronLeft className="size-4" />
                       </button>
@@ -1337,7 +1352,7 @@ export default function BookPage() {
                     style={{ color: ACCENT }}
                     role="status"
                     aria-live="polite"
-                    aria-label={`Paso ${stepIdx + 1} de ${STEPS.length - 1}`}
+                    aria-label={t('progress.step_aria', { current: stepIdx + 1, total: STEPS.length - 1 })}
                   >
                     {stepIdx + 1} / {STEPS.length - 1}
                   </span>
@@ -1361,10 +1376,10 @@ export default function BookPage() {
                   transition={{ duration: 0.22 }}
                 >
                   <h1 className="text-2xl font-bold text-[var(--color-fg)] tracking-tight leading-tight">
-                    {STEP_META[step].title}
+                    {stepMeta[step].title}
                   </h1>
                   <p className="text-sm text-[var(--color-fg-muted)] mt-1">
-                    {STEP_META[step].sub}
+                    {stepMeta[step].sub}
                   </p>
                 </motion.div>
               </div>
@@ -1438,7 +1453,7 @@ export default function BookPage() {
                   aria-live="polite"
                 >
                   <Clock className="size-3.5" style={{ color: ACCENT }} />
-                  <span className="text-[var(--color-fg-muted)]">Horario reservado ·</span>
+                  <span className="text-[var(--color-fg-muted)]">{t('hold.reserved')}</span>
                   <span className="font-semibold tabular-nums font-[var(--font-mono)]" style={{ color: ACCENT }}>
                     {Math.floor(holdRemaining / 60)}:{String(holdRemaining % 60).padStart(2, '0')}
                   </span>
@@ -1447,9 +1462,9 @@ export default function BookPage() {
             </AnimatePresence>
             {step !== 'done' ? (
               <MagneticButton onClick={handleNext} disabled={!canNext} loading={isPending}>
-                {step === 'info' ? 'Confirmar turno' : (
+                {step === 'info' ? t('actions.confirm') : (
                   <span className="flex items-center gap-2">
-                    Continuar
+                    {t('actions.continue')}
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="opacity-80">
                       <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
@@ -1462,7 +1477,7 @@ export default function BookPage() {
                 onClick={() => { navigate('service', -1); setBooking({ name: '', phone: '', email: '' }) }}
                 className="w-full h-14 rounded-2xl border border-[var(--color-border)] text-sm font-semibold text-[var(--color-fg)] bg-[var(--color-bg)] hover:bg-[var(--color-bg-subtle)] transition-colors active:scale-[0.98]"
               >
-                Reservar otro turno
+                {t('actions.book_another')}
               </button>
             )}
           </div>

@@ -13,5 +13,75 @@
   "slot_held": "Slot held for {{seconds}}s",
   "slot_expired": "This slot is no longer available",
   "no_slots": "No availability for this day",
-  "any_barber": "Any barber"
+  "any_barber": "Any barber",
+  "steps": {
+    "service_title": "Which service would you like?",
+    "service_sub": "Pick the type of cut or treatment.",
+    "service_side": "Service",
+    "pick_title": "When works for you?",
+    "pick_sub": "Choose a barber, day and available time.",
+    "pick_side": "Appointment",
+    "info_title": "What should we call you?",
+    "info_sub": "Your details to confirm the booking.",
+    "info_side": "Your details"
+  },
+  "labels": {
+    "barber": "Barber",
+    "day": "Day",
+    "available_slots": "Available times",
+    "auto_assigned": "Barber assigned automatically",
+    "any_barber_short": "Any",
+    "full_name": "Full name",
+    "phone": "Phone",
+    "email": "Email",
+    "optional": "(optional)",
+    "service": "Service",
+    "date": "Date",
+    "time": "Time",
+    "date_and_time": "Date and time",
+    "booking_code": "Booking code",
+    "booking_confirmation": "Booking confirmation"
+  },
+  "placeholders": {
+    "full_name": "Your full name",
+    "phone": "+1 555 123-4567",
+    "email": "you@email.com"
+  },
+  "hints": {
+    "phone_whatsapp": "We'll send your reminder via WhatsApp.",
+    "email_confirmation": "We'll send a confirmation with your booking details.",
+    "save_code": "Save this code as your receipt."
+  },
+  "empty": {
+    "no_slots_title": "No times available",
+    "no_slots_hint": "Try another day"
+  },
+  "errors": {
+    "name_required": "Name is required",
+    "phone_required": "Phone is required",
+    "email_invalid": "Enter a valid email",
+    "no_barbers_for_service": "No barbers available for this service",
+    "slot_taken_confirm": "That slot was just taken. Pick another time.",
+    "service_unavailable": "That service is no longer available.",
+    "confirm_failed": "We couldn't confirm the booking. Try again.",
+    "slot_taken_hold": "That slot was just taken. Try another.",
+    "hold_failed": "We couldn't hold the slot. Try again.",
+    "hold_expired": "Your slot hold expired. Pick another time."
+  },
+  "done": {
+    "title": "Booking confirmed!",
+    "greeting": "See you soon,"
+  },
+  "actions": {
+    "continue": "Continue",
+    "confirm": "Confirm booking",
+    "book_another": "Book another appointment",
+    "back": "Back"
+  },
+  "hold": {
+    "reserved": "Slot held ·"
+  },
+  "progress": {
+    "step_aria": "Step {{current}} of {{total}}"
+  }
 }

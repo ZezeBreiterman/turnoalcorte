@@ -13,5 +13,75 @@
   "slot_held": "Lugar reservado por {{seconds}}s",
   "slot_expired": "Este horario ya no está disponible",
   "no_slots": "Sin disponibilidad para este día",
-  "any_barber": "Cualquier barbero"
+  "any_barber": "Cualquier barbero",
+  "steps": {
+    "service_title": "¿Qué servicio querés?",
+    "service_sub": "Elegí el tipo de corte o tratamiento.",
+    "service_side": "Servicio",
+    "pick_title": "¿Cuándo te viene bien?",
+    "pick_sub": "Elegí barbero, día y horario disponible.",
+    "pick_side": "Turno",
+    "info_title": "¿Cómo te llamamos?",
+    "info_sub": "Tus datos para confirmar el turno.",
+    "info_side": "Tus datos"
+  },
+  "labels": {
+    "barber": "Barbero",
+    "day": "Día",
+    "available_slots": "Horarios disponibles",
+    "auto_assigned": "Barbero asignado automáticamente",
+    "any_barber_short": "Cualquiera",
+    "full_name": "Nombre completo",
+    "phone": "Teléfono",
+    "email": "Email",
+    "optional": "(opcional)",
+    "service": "Servicio",
+    "date": "Fecha",
+    "time": "Hora",
+    "date_and_time": "Fecha y hora",
+    "booking_code": "Código de reserva",
+    "booking_confirmation": "Confirmación de reserva"
+  },
+  "placeholders": {
+    "full_name": "Tu nombre completo",
+    "phone": "+54 11 1234-5678",
+    "email": "tu@email.com"
+  },
+  "hints": {
+    "phone_whatsapp": "Te enviamos el recordatorio por WhatsApp.",
+    "email_confirmation": "Te mandamos una confirmación con los detalles del turno.",
+    "save_code": "Guardá este código como comprobante."
+  },
+  "empty": {
+    "no_slots_title": "Sin turnos disponibles",
+    "no_slots_hint": "Probá con otro día"
+  },
+  "errors": {
+    "name_required": "El nombre es requerido",
+    "phone_required": "El teléfono es requerido",
+    "email_invalid": "Ingresá un email válido",
+    "no_barbers_for_service": "No hay barberos disponibles para este servicio",
+    "slot_taken_confirm": "Ese turno se acaba de ocupar. Elegí otro horario.",
+    "service_unavailable": "Ese servicio ya no está disponible.",
+    "confirm_failed": "No pudimos confirmar el turno. Intentá de nuevo.",
+    "slot_taken_hold": "Ese horario se acaba de ocupar. Probá con otro.",
+    "hold_failed": "No pudimos reservar el horario. Intentá de nuevo.",
+    "hold_expired": "La reserva del horario expiró. Elegí otro turno."
+  },
+  "done": {
+    "title": "¡Turno confirmado!",
+    "greeting": "Te esperamos,"
+  },
+  "actions": {
+    "continue": "Continuar",
+    "confirm": "Confirmar turno",
+    "book_another": "Reservar otro turno",
+    "back": "Volver"
+  },
+  "hold": {
+    "reserved": "Horario reservado ·"
+  },
+  "progress": {
+    "step_aria": "Paso {{current}} de {{total}}"
+  }
 }

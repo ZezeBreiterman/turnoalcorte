@@ -14,6 +14,7 @@ import {
   startOfDay,
   endOfDay,
   addMinutes,
+  addDays,
   differenceInMinutes,
   isWithinInterval,
   isBefore,
@@ -21,6 +22,15 @@ import {
   set,
   getDay,
 } from 'date-fns'
+import { es, enUS, type Locale } from 'date-fns/locale'
+import i18n from '@/i18n'
+
+// ─── Locale resolver ──────────────────────────────────────────────────────────
+
+function currentLocale(): Locale {
+  const lang = i18n.language || 'es'
+  return lang.startsWith('en') ? enUS : es
+}
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
@@ -130,6 +140,30 @@ export const groupByDay = <T extends { start_time: string }>(
   return map
 }
 
+// ─── Locale-aware short labels ────────────────────────────────────────────────
+
+/** Short weekday label, e.g. "Lun" / "Mon", honouring the active i18n language. */
+export const formatShortWeekday = (date: Date): string =>
+  format(date, 'EEE', { locale: currentLocale() })
+
+/** Short month label, e.g. "Ene" / "Jan", honouring the active i18n language. */
+export const formatShortMonth = (date: Date): string =>
+  format(date, 'MMM', { locale: currentLocale() })
+
+/** Long, human-readable day label, e.g. "lunes 5 de mayo" / "Monday, May 5". */
+export const formatDayLong = (date: Date): string => {
+  const loc = currentLocale()
+  if (loc === enUS) return format(date, 'EEEE, MMMM d', { locale: loc })
+  return format(date, "EEEE d 'de' MMMM", { locale: loc })
+}
+
+/** Format a date with an arbitrary pattern, using the active locale. */
+export const formatWithPattern = (date: Date, pattern: string): string =>
+  format(date, pattern, { locale: currentLocale() })
+
+/** yyyy-MM-dd key (locale-independent). */
+export const formatDateKey = (date: Date): string => format(date, 'yyyy-MM-dd')
+
 // Re-export commonly used date-fns helpers so the rest of the app
 // doesn't need to import date-fns directly.
-export { isSameDay, isToday, isTomorrow, getDay, isWithinInterval, addMinutes, isBefore, isAfter, startOfDay, endOfDay }
+export { isSameDay, isToday, isTomorrow, getDay, isWithinInterval, addMinutes, addDays, isBefore, isAfter, startOfDay, endOfDay }

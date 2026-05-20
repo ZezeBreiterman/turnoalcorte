@@ -22,5 +22,6 @@
   "cancel_appointment": "Cancelar turno",
   "confirm_cancel": "¿Cancelar este turno?",
   "yes_cancel": "Sí, cancelar",
-  "no_keep": "Mantener"
+  "no_keep": "Mantener",
+  "time_off": "vacaciones"
 }

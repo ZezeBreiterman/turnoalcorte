@@ -22,5 +22,6 @@
   "cancel_appointment": "Cancel appointment",
   "confirm_cancel": "Cancel this appointment?",
   "yes_cancel": "Yes, cancel",
-  "no_keep": "Keep it"
+  "no_keep": "Keep it",
+  "time_off": "vacation"
 }

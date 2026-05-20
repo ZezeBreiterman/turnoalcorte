@@ -39,6 +39,7 @@ import {
   endOfDay,
   formatTime,
   formatDayHeading,
+  formatShortWeekday,
   isToday,
 } from '@/lib/time'
 import type { Appointment, Barber, BarberSchedule, TimeOff } from '@/types/database'
@@ -563,8 +564,6 @@ function ViewToggle({
 
 // ── Month View ────────────────────────────────────────────────────────────────
 
-const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
 interface MonthViewProps {
   monthDate: Date
   appointments: Appointment[]
@@ -580,12 +579,17 @@ function MonthView({
   barbers,
   onDayClick,
 }: MonthViewProps) {
+  const { t } = useTranslation('calendar')
   const monthStart = startOfMonth(monthDate)
   const monthEnd   = endOfMonth(monthDate)
 
   const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 })
   const gridEnd   = endOfWeek(monthEnd, { weekStartsOn: 1 })
   const days       = eachDayOfInterval({ start: gridStart, end: gridEnd })
+
+  // Locale-aware weekday labels (Mon–Sun), rebuilt on language change.
+  // useTranslation subscribes to language changes so the component re-renders.
+  const weekdayLabels = days.slice(0, 7).map((d) => formatShortWeekday(d))
 
   const apptByDay = new Map<string, Appointment[]>()
   for (const appt of appointments) {
@@ -603,9 +607,9 @@ function MonthView({
         className="grid grid-cols-7 shrink-0 border-b border-[var(--color-border)]"
         style={{ backgroundColor: 'var(--color-bg)' }}
       >
-        {WEEKDAY_LABELS.map((label) => (
+        {weekdayLabels.map((label, i) => (
           <div
-            key={label}
+            key={i}
             className="py-2 text-center text-[11px] font-semibold text-[var(--color-fg-muted)] uppercase tracking-wide"
           >
             {label}
@@ -669,7 +673,7 @@ function MonthView({
                       className="text-[9px] leading-none truncate"
                       style={{ color }}
                     >
-                      vacation
+                      {t('time_off')}
                     </span>
                   </div>
                 )
@@ -747,6 +751,7 @@ function WeekView({
   barbers,
   onDayClick,
 }: WeekViewProps) {
+  const { t } = useTranslation('calendar')
   const days = eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) })
 
   const barberMap = new Map<string, Barber>(barbers.map((b) => [b.id, b]))
@@ -845,7 +850,7 @@ function WeekView({
                       {initial}
                     </span>
                     <span className="text-[9px] leading-none truncate" style={{ color }}>
-                      vacation
+                      {t('time_off')}
                     </span>
                   </div>
                 )
