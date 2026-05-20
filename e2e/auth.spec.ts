@@ -1,6 +1,8 @@
 import { test as base, expect } from '@playwright/test'
 import path from 'path'
+import { fileURLToPath } from 'url'
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const authFile = path.join(__dirname, '.auth/user.json')
 
 // Use base test (no injected auth) so we can test auth flows directly

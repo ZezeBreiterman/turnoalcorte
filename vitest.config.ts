@@ -4,6 +4,8 @@ import { resolve } from 'path'
 export default defineConfig({
   test: {
     environment: 'node',
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['node_modules', 'dist', 'e2e/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
