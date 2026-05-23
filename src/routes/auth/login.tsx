@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowRight, Mail, RefreshCw, Key } from 'lucide-react'
+import { ArrowRight, Mail, RefreshCw, Key, Sun, Moon } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { z } from 'zod'
 import { useTranslation } from 'react-i18next'
@@ -104,7 +104,7 @@ export default function LoginPage() {
           className="absolute top-5 right-5 rounded-[var(--radius-md)] p-2 text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] hover:bg-[var(--color-bg-subtle)] transition-colors"
           aria-label={t('toggle_theme')}
         >
-          {isDark ? '☀️' : '🌙'}
+          {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </button>
       </Tooltip>
 

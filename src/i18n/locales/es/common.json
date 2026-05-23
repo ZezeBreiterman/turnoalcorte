@@ -25,7 +25,8 @@
     "services": "Servicios",
     "barbers": "Barberos",
     "analytics": "Análisis",
-    "settings": "Configuración"
+    "settings": "Configuración",
+    "menu": "Menú"
   },
   "status": {
     "confirmed": "Confirmado",
