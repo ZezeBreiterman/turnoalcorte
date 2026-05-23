@@ -13,6 +13,7 @@ import {
   LogOut,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useTranslation } from 'react-i18next'
 import { Sidebar } from './Sidebar'
 import { CommandPalette } from '@/components/command/CommandPalette'
 import { TutorialOverlay } from '@/components/onboarding/TutorialOverlay'
@@ -25,21 +26,22 @@ import type { Profile } from '@/lib/auth'
 import { can } from '@/lib/can'
 
 const MOBILE_NAV_PRIMARY = [
-  { to: '/app/today',    icon: CalendarClock, label: 'Today' },
-  { to: '/app/calendar', icon: Calendar,      label: 'Calendar' },
-  { to: '/app/clients',  icon: Users,         label: 'Clients' },
+  { to: '/app/today',    icon: CalendarClock, labelKey: 'nav.today' },
+  { to: '/app/calendar', icon: Calendar,      labelKey: 'nav.calendar' },
+  { to: '/app/clients',  icon: Users,         labelKey: 'nav.clients' },
 ]
 
 const MOBILE_NAV_ADMIN = [
-  { to: '/app/services',  icon: Scissors,  label: 'Services' },
-  { to: '/app/barbers',   icon: User,      label: 'Barbers' },
-  { to: '/app/analytics', icon: BarChart3, label: 'Analytics' },
-  { to: '/app/settings',  icon: Settings,  label: 'Settings' },
+  { to: '/app/services',  icon: Scissors,  labelKey: 'nav.services' },
+  { to: '/app/barbers',   icon: User,      labelKey: 'nav.barbers' },
+  { to: '/app/analytics', icon: BarChart3, labelKey: 'nav.analytics' },
+  { to: '/app/settings',  icon: Settings,  labelKey: 'nav.settings' },
 ]
 
 export default function AppShell() {
   useTheme()
   useDensity()
+  const { t } = useTranslation('common')
 
   const loaderData = useRouteLoaderData('app-shell') as { profile: Profile } | null
   const role = loaderData?.profile.role ?? 'barber'
@@ -79,8 +81,9 @@ export default function AppShell() {
         <nav
           className="md:hidden flex shrink-0 border-t border-[var(--color-border)] bg-[var(--color-bg)]"
           aria-label="Mobile navigation"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
-          {MOBILE_NAV_PRIMARY.map(({ to, icon: Icon, label }) => (
+          {MOBILE_NAV_PRIMARY.map(({ to, icon: Icon, labelKey }) => (
             <NavLink
               key={to}
               to={to}
@@ -92,7 +95,7 @@ export default function AppShell() {
               )}
             >
               <Icon className="size-5" />
-              <span>{label}</span>
+              <span>{t(labelKey as 'nav.today')}</span>
             </NavLink>
           ))}
 
@@ -101,10 +104,10 @@ export default function AppShell() {
             <button
               onClick={() => setMobileMenuOpen(true)}
               className="flex flex-1 flex-col items-center justify-center gap-1 py-2 min-h-[56px] text-xs font-medium text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] transition-colors"
-              aria-label="Open menu"
+              aria-label={t('nav.menu')}
             >
               <Menu className="size-5" />
-              <span>Menu</span>
+              <span>{t('nav.menu')}</span>
             </button>
           )}
         </nav>
@@ -145,7 +148,7 @@ export default function AppShell() {
                 <button
                   onClick={() => setMobileMenuOpen(false)}
                   className="rounded-[var(--radius-md)] p-1.5 text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-subtle)] hover:text-[var(--color-fg)] transition-colors"
-                  aria-label="Close menu"
+                  aria-label={t('close')}
                 >
                   <X className="size-4" />
                 </button>
@@ -153,7 +156,7 @@ export default function AppShell() {
 
               {/* Nav items */}
               <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
-                {MOBILE_NAV_ADMIN.map(({ to, icon: Icon, label }) => (
+                {MOBILE_NAV_ADMIN.map(({ to, icon: Icon, labelKey }) => (
                   <NavLink
                     key={to}
                     to={to}
@@ -166,7 +169,7 @@ export default function AppShell() {
                     )}
                   >
                     <Icon className="size-4 shrink-0" />
-                    {label}
+                    {t(labelKey as 'nav.services')}
                   </NavLink>
                 ))}
               </nav>
@@ -192,7 +195,7 @@ export default function AppShell() {
                     className="flex w-full items-center gap-3 rounded-[var(--radius-md)] px-3 py-2.5 text-sm font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 transition-colors"
                   >
                     <LogOut className="size-4 shrink-0" />
-                    Sign out
+                    {t('sign_out')}
                   </button>
                 </div>
               )}

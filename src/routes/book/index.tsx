@@ -335,8 +335,7 @@ function DayStrip({
 }) {
   const days = Array.from({ length: 14 }, (_, i) => startOfDay(addDays(now(), i)))
   return (
-    <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1"
-      style={{ scrollbarWidth: 'none' }}>
+    <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 no-scrollbar">
       {days.map((day) => {
         const key = format(day, 'yyyy-MM-dd')
         const isSelected = selected && format(selected, 'yyyy-MM-dd') === key
@@ -582,7 +581,7 @@ function StepPick({
         <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-fg-muted)] mb-3">
           Barbero
         </p>
-        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 no-scrollbar">
           <button
             type="button"
             onClick={() => setViewingBarberId('any')}
@@ -1278,9 +1277,7 @@ export default function BookPage() {
   const progressPct = step === 'done' ? 100 : (stepIdx / (STEPS.length - 1)) * 100
 
   return (
-    <div className="min-h-[100dvh] bg-[var(--color-bg)]" style={{ display: 'grid', gridTemplateColumns: '1fr' }}>
-      {/* Split layout on desktop */}
-      <div className="min-h-[100dvh] grid grid-cols-1 md:grid-cols-[2fr_3fr]">
+    <div className="min-h-[100dvh] bg-[var(--color-bg)] grid grid-cols-1 md:grid-cols-[2fr_3fr]">
 
         {/* Left: dark sidebar */}
         <LeftSidebar step={step} booking={booking} shop={shop} />
@@ -1417,7 +1414,10 @@ export default function BookPage() {
           </div>
 
           {/* Sticky CTA */}
-          <div className="px-5 md:px-10 pb-8 pt-4 border-t border-[var(--color-border)] bg-[var(--color-bg)]">
+          <div
+            className="px-5 md:px-10 pt-4 border-t border-[var(--color-border)] bg-[var(--color-bg)]"
+            style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))' }}
+          >
             <AnimatePresence>
               {holdRemaining != null && holdRemaining > 0 && (step === 'pick' || step === 'info') && (
                 <motion.div
@@ -1459,7 +1459,6 @@ export default function BookPage() {
           </div>
 
         </div>
-      </div>
     </div>
   )
 }
